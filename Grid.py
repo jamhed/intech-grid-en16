@@ -3,8 +3,12 @@ from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
 from _Framework.EncoderElement import EncoderElement
 from _Framework.ButtonElement import ButtonElement
 from _Framework.DeviceComponent import DeviceComponent
+from _Framework.SessionComponent import SessionComponent
+from _Framework.ButtonMatrixElement import ButtonMatrixElement
 from _Framework.MixerComponent import MixerComponent
 from _Framework.ChannelTranslationSelector import ChannelTranslationSelector
+from _Framework.ClipSlotComponent import ClipSlotComponent
+from _Framework.SceneComponent import SceneComponent
 import Live
 import logging
 
@@ -23,6 +27,20 @@ def make_controls(maker, label, cc_range):
     ccs = [(index + 1, cc) for index, cc in enumerate(cc_range)]
     return [maker(0, cc, label % index) for index, cc in ccs]
 
+class ToggleClipSlotComponent(ClipSlotComponent):
+    def _do_launch_clip(self, fire_state):
+        slot = self._clip_slot
+        if slot and slot.has_clip and slot.clip.is_playing:
+            slot.stop()
+        else:
+            super()._do_launch_clip(fire_state)
+
+class ToggleSceneComponent(SceneComponent):
+    clip_slot_component_type = ToggleClipSlotComponent
+
+class ToggleSessionComponent(SessionComponent):
+    scene_component_type = ToggleSceneComponent
+
 class Grid(ControlSurface):
     def __init__(self, c_instance): # c_instance: MidiRemoteScript
         super().__init__(c_instance)
@@ -30,6 +48,7 @@ class Grid(ControlSurface):
             self._create_controls()
             self._setup_device()
             self._setup_mixer()
+            self._setup_session()
         self._set_track_controls(self._mixer.selected_strip().track)
 
     def _create_controls(self):
@@ -56,28 +75,31 @@ class Grid(ControlSurface):
     def _on_selected_track_changed(self):
         logger.info("_on_selected_track_changed")
         super()._on_selected_track_changed()
-        if not self._device_component:
-            return
         track = self.song().view.selected_track
-        device_to_select = track.view.selected_device
-        if device_to_select is None and len(track.devices) > 0:
-            device_to_select = track.devices[0]
-        if device_to_select is not None:
-            self.song().view.select_device(device_to_select)
-        self._device_component.set_device(device_to_select)
+        if self._device_component:
+            device = track.view.selected_device or (track.devices[0] if track.devices else None)
+            if device:
+                self.song().view.select_device(device)
+            self._device_component.set_device(device)
         self._set_track_controls(track)
+        tracks = list(self.song().tracks)
+        if track in tracks:
+            self._session.set_offsets(tracks.index(track), self._session.scene_offset())
+
+    def _setup_session(self):
+        self._session = ToggleSessionComponent(num_tracks=1, num_scenes=4)
+        self._session.set_offsets(0, 0)
+        matrix = ButtonMatrixElement(rows=[[b] for b in self._buttons[12:16]])
+        self._session.set_clip_launch_buttons(matrix)
 
     def _set_track_controls(self, track):
-        mixer = track.mixer_device
         logger.info("_set_track_controls %s", track.name)
-        self._encoders[15].release_parameter()
-        self._encoders[15].connect_to(mixer.volume)
-        if len(mixer.sends)==1:
-            self._encoders[14].release_parameter()
-            self._encoders[14].connect_to(mixer.sends[0])
-        if len(mixer.sends)==2:
-            self._encoders[13].release_parameter()
-            self._encoders[13].connect_to(mixer.sends[1])
+        mixer = track.mixer_device
+        
+        params = [mixer.volume] + list(mixer.sends[:3])
+        for i, param in enumerate(params):
+            self._encoders[15 - i].release_parameter()
+            self._encoders[15 - i].connect_to(param)
 
     def _setup_mixer(self):
         self._mixer = MixerComponent(8, 4)

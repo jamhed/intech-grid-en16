@@ -1,49 +1,69 @@
-# Ableton and EN16
+# Intech EN16 Ableton Control surface
 
-```sh
-cd ~/Music/Ableton/User\ Library/Remote\ Scripts/Intech
-```
+Control Ableton with EN16 encoders and buttons:
 
-On Control Surface initialisation Ableton sends out values as MIDI messages,
-however EN16 installs MIDI callback handler later, so these messages are skipped
-or partially processed. As remediation, we request parameter update
-in `setup` handler via delayed timer event.
+- buttons 1-8 select a track, long press arms the track
+- buttons 9-12 select a return track
+- buttons 13-16 launch clips 1-4 in the current track
+- encoders 1-12 control device in the current track
+- encoders 13-16 control sends and volume (16 - volume, 15 - sends A, 14 - sends B, 13 - sends C)
 
-##
+It requires two components working together:
 
-Control track devices with auto-mapped encoders:
-- first 8 encoders control device
-- first 8 buttons select track
-- buttons 8-12 select return track
-- button long press arms track
+- Custom EN16 configuration profile
+- Ableton Control Surface Script for EN16
 
-It requires two things working together:
+# Ableton Control Surface Script
 
-- EN16 configuration with Lua-snippets with [Grid editor](https://docs.intech.studio/guides/introduction)
-- Ableton Control Surface Script for EN16 in Python
+Copy python files (`*.py`) from this repo to Ableton remote scripts location,
+e.g., `~/Music/Ableton/User\ Library/Remote\ Scripts/Intech`.
 
-## Ableton Control Surface Script
+## Setting up Ableton for development
 
-### Development environment
+Ableton Python API is known to be poorly documented, so decompiled Python scripts from Ableton is the
+documentation source. Helpful references on how to develop a custom Ableton Control surface:
 
-Decompiled control surface [scripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts), for reference and inspiration.
+- https://github.com/kmontag/modeStep
+- https://github.com/oslo1989/ableton-control-surface-toolkit
+- https://github.com/gluon/AbletonLive12_MIDIRemoteScripts
 
 Obtain Ableton Beta to enable Python console and script reload functions in `options.txt`:
 ```
 -_ToolsMenuRemoteScripts
 ```
 
-In Ableton Python console:
+Then in Ableton Python console:
 
 ```python
 control_surfaces[0]._c_instance.show_message("test")
 ```
 
-## EN16 setup
+This project has AbletonLive12_MIDIRemoteScripts in `__ext__` folder as git submodule.
+This enables Pyright to check types and editor to provide context help, and it is not 
+required to run the control surface.
 
-### System button
+# EN16 development
 
-There is a "system" button (16) to select pages, with following slots:
+Development requires providing Lua-snippets via [Grid editor](https://docs.intech.studio/guides/introduction) in different pre-defined event slots.
+Grid editor configuration files location: `~/Documents/grid-userdata/configs`. Below are Lua snippets
+that can be pasted in event slots into `Code` widget, and adjusted if needed.
+
+Lua scripts are [transformed](https://github.com/intechstudio/grid-protocol) to reduce size (by using abbreviations for built-in functions, and
+removing whitespaces).
+
+At the device boot, it executes event handlers in order:
+
+- System Setup
+- System other Events
+- Element 0 Setup
+- Element 0 other Events
+- Element 1 Setup
+- Element 1 other Events
+- ...
+
+## System button
+
+There is a "system" button (e.g., Element 16), typically used to select pages, with following event slots:
 
 - setup
 - utility
@@ -87,7 +107,7 @@ Encoders are configured by defininig Lua code per each encoder, in respective sl
 - encoder
 - timer
 
-### Track encoder
+## Track/Device encoder
 
 For encoders 0-7:
 
@@ -98,7 +118,7 @@ self:led_color(1, {{0, 0, 255, 1}})
 
 Button:
 ```lua
-local ch, note, val = page_current(), 32 + self:element_index(), self:button_value()
+local note, val = page_current(), 32 + self:element_index(), self:button_value()
 if self:button_state() == 0 then
     if self:button_elapsed_time() > 1000 then
         note = note + 16
@@ -106,16 +126,16 @@ if self:button_state() == 0 then
     end
 end
 -- channel, midi, note, velocity [-1 being a default]
-self:midi_send(ch, 144, note, val)
+self:midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 Encoder:
 ```lua
-local ch, cc, val = page_current(), 32 + self:element_index(), self:encoder_value()
-midi_send(ch, 176, cc, val)
+local cc, val = page_current(), 32 + self:element_index(), self:encoder_value()
+midi_send(CH, MIDI_CC, cc, val)
 ```
 
-### Send encoder
+## Return/Send encoder
 
 Send/return tracks encoders (8-11):
 
@@ -127,7 +147,7 @@ self:led_color(1, {{87, 255, 165, 1}})
 Button:
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
-self:midi_send(CH, MIDI_NOTE, note, val)
+midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 Encoder:
@@ -136,9 +156,9 @@ local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
 ```
 
-### Control encoders
+## Launch/volume encoders
 
-Control encoders (12-15):
+Launch/volume encoders (12-15):
 
 Setup:
 ```lua
@@ -148,7 +168,7 @@ self:led_color(1, {{255, 255, 0, 1}})
 Button:
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
-self:midi_send(CH, MIDI_NOTE, note, val)
+midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 Encoder:
@@ -158,6 +178,22 @@ midi_send(CH, MIDI_CC, cc, val)
 ```
 
 ## Lua
+
+Button long-press detector:
+
+```lua
+if self:button_state() == 0 then
+    if self:button_elapsed_time() > 1000 then
+        print("long press, after 1 seconds")
+    else
+        print("short press")
+    end
+end
+```
+
+## Built-in functions
+
+For reference, built-in functions defined by Grid [firmware](https://github.com/intechstudio/grid-fw/tree/master/grid_common/lua_src):
 
 ```lua
 led_animation_phase_rate_type(num, 1, val, 1, 1)
@@ -186,19 +222,9 @@ self:potmeter_min(0)
 self:potmeter_max(127)
 ```
 
-Button long-press detector:
+# Known issues
 
-```lua
-if self:button_state() == 0 then
-    if self:button_elapsed_time() > 1000 then
-        print("long press")
-    else
-        print("short press")
-    end
-end
-```
-
-# References
-
-https://github.com/kmontag/modeStep
-https://github.com/oslo1989/ableton-control-surface-toolkit
+On Control Surface initialisation Ableton sends out values as MIDI messages,
+however EN16 installs MIDI callback handler later, so these messages are skipped
+or partially processed. As remediation, we request parameter update
+in `setup` handler via delayed timer event.
