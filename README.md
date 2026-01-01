@@ -177,10 +177,9 @@ local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
 ```
 
-## Lua
+## Lua snippets
 
 Button long-press detector:
-
 ```lua
 if self:button_state() == 0 then
     if self:button_elapsed_time() > 1000 then
@@ -191,36 +190,7 @@ if self:button_state() == 0 then
 end
 ```
 
-## Built-in functions
-
-For reference, built-in functions defined by Grid [firmware](https://github.com/intechstudio/grid-fw/tree/master/grid_common/lua_src):
-
-```lua
-led_animation_phase_rate_type(num, 1, val, 1, 1)
-led_color(self:element_index(), 1, led_default_red(), led_default_green(), led_default_blue())
-led_value(self:element_index(), 1, 127)
-timer_source(self:element_index(), 0)
-timer_start(self:element_index(), 1000)
-timer_stop(self:element_index())
-self:led_color(-1, {{-1, -1, -1, 1}})
-self:led_value(-1, -1)
-self:button_mode(0)
-self:button_min(0)
-self:button_max(127)
-self:encoder_mode(0)
-self:encoder_velocity(50)
-self:encoder_min(0)
-self:encoder_max(127)
-self:encoder_sensitivity(100)
-self:endless_mode(0)
-self:endless_velocity(50)
-self:endless_min(0)
-self:endless_max(16383)
-self:endless_sensitivity(50)
-self:potmeter_resolution(7)
-self:potmeter_min(0)
-self:potmeter_max(127)
-```
+For reference, see the [Grid Lua API Reference](docs/GRID_LUA.md) for documentation on handlers, elements, and global functions.
 
 # Known issues
 

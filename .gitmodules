@@ -1,3 +1,6 @@
 [submodule "__ext__/AbletonLive12_MIDIRemoteScripts"]
 	path = __ext__/AbletonLive12_MIDIRemoteScripts
 	url = https://github.com/gluon/AbletonLive12_MIDIRemoteScripts
+[submodule "__ext__/grid-fw"]
+	path = __ext__/grid-fw
+	url = git@github.com:intechstudio/grid-fw.git
