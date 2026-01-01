@@ -26,6 +26,7 @@ Intech/
 ├── __init__.py              # Entry point + specification
 ├── elements.py              # MIDI control definitions
 ├── mappings.py              # Control → component wiring
+├── skin.py                  # LED feedback colors (required!)
 ├── session.py               # Custom session behavior
 └── target_track_controls.py # Selected track parameters
 ```
@@ -177,7 +178,103 @@ The framework provides these components automatically:
 | `Target_Track` | Track selection provider | (no direct mappings, provides dependency) |
 | `View_Based_Recording` | Recording follows view | (no direct mappings) |
 
-## Step 4: Create Specification (`__init__.py`)
+## Step 4: Create Skin for LED Feedback (`skin.py`)
+
+**This step is critical for MIDI feedback.** Without a Skin, Ableton will not send any data back to your controller - no LED updates, no button states, nothing.
+
+### Why Skin is Required
+
+In v3, button colors/states are set via skin values like `"Session.ClipPlaying"` or `"Mixer.ArmOn"`. The framework looks up these values in your Skin class to determine what MIDI value to send. Without a skin:
+- `button.color = "Session.ClipPlaying"` → lookup fails → no MIDI sent
+- Your controller LEDs stay dark
+
+### Basic Skin for Simple LEDs
+
+For controllers with simple on/off LEDs (not RGB), use `BasicColors`:
+
+```python
+from ableton.v3.control_surface.colors import BasicColors
+
+
+class Skin:
+    """Simple on/off skin for LEDs."""
+
+    class DefaultButton:
+        On = BasicColors.ON      # sends 127
+        Off = BasicColors.OFF    # sends 0
+        Pressed = BasicColors.ON
+        Disabled = BasicColors.OFF
+
+    class Mixer:
+        ArmOn = BasicColors.ON
+        ArmOff = BasicColors.OFF
+        MuteOn = BasicColors.ON
+        MuteOff = BasicColors.OFF
+        SoloOn = BasicColors.ON
+        SoloOff = BasicColors.OFF
+        Selected = BasicColors.ON
+        NotSelected = BasicColors.OFF
+        NoTrack = BasicColors.OFF
+
+    class Session:
+        Slot = BasicColors.OFF
+        SlotEmpty = BasicColors.OFF
+        NoSlot = BasicColors.OFF
+        ClipStopped = BasicColors.ON
+        ClipPlaying = BasicColors.ON
+        ClipRecording = BasicColors.ON
+        ClipTriggeredPlay = BasicColors.ON
+        ClipTriggeredRecord = BasicColors.ON
+
+    class Transport:
+        PlayOn = BasicColors.ON
+        PlayOff = BasicColors.OFF
+        RecordOn = BasicColors.ON
+        RecordOff = BasicColors.OFF
+```
+
+### Register Skin in Specification
+
+```python
+from ableton.v3.control_surface import create_skin
+from .skin import Skin
+
+class Specification(ControlSurfaceSpecification):
+    control_surface_skin = create_skin(skin=Skin)
+    # ... rest of specification
+```
+
+### Skin Value Lookup
+
+When the framework sets a button color:
+```python
+self.launch_button.color = "Session.ClipPlaying"
+```
+
+It resolves to:
+1. Look for `Skin.Session.ClipPlaying`
+2. Get `BasicColors.ON` (which is `SimpleColor(127)`)
+3. Send MIDI note/CC with value 127 to the button
+
+### RGB Controllers
+
+For RGB controllers, define custom colors:
+```python
+from ableton.v3.control_surface.elements import SimpleColor
+
+class Rgb:
+    RED = SimpleColor(5)      # Controller-specific color index
+    GREEN = SimpleColor(21)
+    BLUE = SimpleColor(45)
+    # etc.
+
+class Skin:
+    class Session:
+        ClipPlaying = Rgb.GREEN
+        ClipRecording = Rgb.RED
+```
+
+## Step 5: Create Specification (`__init__.py`)
 
 The specification ties everything together:
 
