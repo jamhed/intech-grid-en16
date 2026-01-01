@@ -1,76 +1,159 @@
-# Intech EN16 Ableton Control surface
+# Intech EN16 Ableton Control Surface
 
-Control Ableton with EN16 encoders and buttons:
+Control Ableton Live with the Intech EN16 grid controller using the modern `ableton.v3` framework.
 
-- buttons 1-8 select a track, long press arms the track
-- buttons 9-12 select a return track
-- buttons 13-16 launch clips 1-4 in the current track
-- encoders 1-12 control device in the current track
-- encoders 13-16 control sends and volume (16 - volume, 15 - sends A, 14 - sends B, 13 - sends C)
+## Features
 
-It requires two components working together:
+| Control | Function |
+|---------|----------|
+| Buttons 1-8 | Select track (long press to arm) |
+| Buttons 9-12 | Select return track |
+| Buttons 13-16 | Launch/stop clips 1-4 on selected track |
+| Encoders 1-8 | Device parameters |
+| Encoders 9-12 | (available for custom mapping) |
+| Encoder 13 | Send C (selected track) |
+| Encoder 14 | Send B (selected track) |
+| Encoder 15 | Send A (selected track) |
+| Encoder 16 | Volume (selected track) |
 
-- Custom EN16 configuration profile
-- Ableton Control Surface Script for EN16
+## Installation
 
-# Ableton Control Surface Script
+1. Copy this folder to Ableton's Remote Scripts location:
+   ```
+   ~/Music/Ableton/User Library/Remote Scripts/Intech
+   ```
 
-Copy python files (`*.py`) from this repo to Ableton remote scripts location,
-e.g., `~/Music/Ableton/User\ Library/Remote\ Scripts/Intech`.
+2. In Ableton Live, go to **Preferences → Link, Tempo & MIDI**
 
-## Setting up Ableton for development
+3. Set Control Surface to **Intech**, Input/Output to your EN16 MIDI ports
 
-Ableton Python API is known to be poorly documented, so decompiled Python scripts from Ableton is the
-documentation source. Helpful references on how to develop a custom Ableton Control surface:
+4. Restart Ableton Live
 
-- https://github.com/kmontag/modeStep
-- https://github.com/oslo1989/ableton-control-surface-toolkit
-- https://github.com/gluon/AbletonLive12_MIDIRemoteScripts
+## Project Structure
 
-Obtain Ableton Beta to enable Python console and script reload functions in `options.txt`:
+```
+Intech/
+├── __init__.py              # Entry point + ControlSurfaceSpecification
+├── elements.py              # MIDI control definitions (ElementsBase)
+├── mappings.py              # Control → component wiring
+├── session.py               # Custom toggle-clip session
+├── target_track_controls.py # Volume/sends for selected track
+├── docs/
+│   └── control-surface-guide.md  # Development guide
+├── grid/
+│   └── EN16-Control.json    # Grid controller configuration
+├── tools/
+│   ├── grid-cli.ts          # Upload/download Grid configs
+│   └── README.md            # CLI documentation
+└── __ext__/
+    └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
+```
+
+### Key v3 Imports
+
+```python
+from ableton.v3.control_surface import (
+    ControlSurface, ControlSurfaceSpecification,
+    Component, ElementsBase,
+    MIDI_CC_TYPE, MIDI_NOTE_TYPE,
+)
+from ableton.v3.base import depends, listens
+from ableton.v3.live import liveobj_valid
+```
+
+## Development
+
+### Prerequisites
+
+- Ableton Live 12.1+ (uses `ableton.v3` framework)
+- Python 3.11 (bundled with Live)
+
+### Enable Script Reloading
+
+Add to `Options.txt` (requires Ableton Beta):
 ```
 -_ToolsMenuRemoteScripts
 ```
 
-Then in Ableton Python console:
+Location:
+- macOS: `/Users/[username]/Library/Preferences/Ableton/Live x.x.x/Options.txt`
+- Windows: `%APPDATA%\Ableton\Live x.x.x\Preferences\Options.txt`
 
-```python
-control_surfaces[0]._c_instance.show_message("test")
+### View Logs
+
+```bash
+# macOS
+tail -f ~/Library/Preferences/Ableton/Live\ */Log.txt | grep -i intech
+
+# Windows
+Get-Content "$env:APPDATA\Ableton\Live *\Preferences\Log.txt" -Wait | Select-String "intech"
 ```
 
-This project has AbletonLive12_MIDIRemoteScripts in `__ext__` folder as git submodule.
-This enables Pyright to check types and editor to provide context help, and it is not 
-required to run the control surface.
+### Clear Cache Before Reload
 
-# EN16 development
+After editing Python files, clear the bytecode cache:
+```bash
+rm -rf __pycache__
+```
 
-Development requires providing Lua-snippets via [Grid editor](https://docs.intech.studio/guides/introduction) in different pre-defined event slots.
-Grid editor configuration files location: `~/Documents/grid-userdata/configs`. Below are Lua snippets
-that can be pasted in event slots into `Code` widget, and adjusted if needed.
+Then reload via Preferences (toggle Control Surface) or Tools → Reload MIDI Remote Scripts.
 
-Lua scripts are [transformed](https://github.com/intechstudio/grid-protocol) to reduce size (by using abbreviations for built-in functions, and
-removing whitespaces).
+### Type Checking
 
-At the device boot, it executes event handlers in order:
+This project includes `AbletonLive12_MIDIRemoteScripts` as a git submodule for type hints:
 
-- System Setup
-- System other Events
-- Element 0 Setup
-- Element 0 other Events
-- Element 1 Setup
-- Element 1 other Events
-- ...
+```bash
+git submodule update --init
+```
 
-## System button
+### References
 
-There is a "system" button (e.g., Element 16), typically used to select pages, with following event slots:
+- [Control Surface Development Guide](docs/control-surface-guide.md)
+- [NK2Reshift](https://github.com/kmontag/NK2Reshift) - Modern v3 example
+- [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) - Decompiled scripts
+- [ableton-control-surface-toolkit](https://github.com/oslo1989/ableton-control-surface-toolkit) - Live object documentation
 
-- setup
-- utility
-- midi rx (looks obsoleted)
-- timer
+---
 
-Set encoder values based on the state transmitted by Ableton in setup slot:
+# Grid CLI Tool
+
+A command-line tool for uploading/downloading Grid controller configurations without Grid Editor.
+
+## Quick Start
+
+```bash
+cd tools
+npm install
+
+# Upload config to device
+npx tsx grid-cli.ts upload ../grid/EN16-Control.json
+
+# Download config from device
+npx tsx grid-cli.ts download ./backup.json -t EN16
+```
+
+See [tools/README.md](tools/README.md) for full documentation.
+
+---
+
+# EN16 Configuration
+
+The controller requires a custom profile configured via [Grid Editor](https://docs.intech.studio/guides/introduction) or the [Grid CLI tool](#grid-cli-tool).
+
+## MIDI Layout
+
+| Control | Type | Channel | Identifiers |
+|---------|------|---------|-------------|
+| Encoders | CC | 0 | 32-47 |
+| Buttons | Note | 0 | 32-47 |
+| Long Buttons | Note | 0 | 48-63 |
+| Control Button | Note | 0 | 64 |
+
+## System Element (Element 16)
+
+Handles MIDI feedback from Ableton and periodic sync requests.
+
+### Setup Event
 
 ```lua
 MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
@@ -91,110 +174,97 @@ end
 self:timer_start(1000)
 ```
 
-Timer slot:
+### Timer Event
 
 ```lua
--- channel, midi note, note, velocity
 midi_send(CH, MIDI_NOTE, 64, 127)
 ```
 
-## Encoders
+## Track/Device Encoders (0-7)
 
-Encoders are configured by defininig Lua code per each encoder, in respective slots:
-
-- setup
-- button
-- encoder
-- timer
-
-## Track/Device encoder
-
-For encoders 0-7:
-
-Setup:
+### Setup
 ```lua
 self:led_color(1, {{0, 0, 255, 1}})
 ```
 
-Button:
+### Button
 ```lua
-local note, val = page_current(), 32 + self:element_index(), self:button_value()
+local note, val = 32 + self:element_index(), self:button_value()
 if self:button_state() == 0 then
     if self:button_elapsed_time() > 1000 then
         note = note + 16
         val = 127
     end
 end
--- channel, midi, note, velocity [-1 being a default]
-self:midi_send(CH, MIDI_NOTE, note, val)
+midi_send(CH, MIDI_NOTE, note, val)
 ```
 
-Encoder:
+### Encoder
 ```lua
-local cc, val = page_current(), 32 + self:element_index(), self:encoder_value()
+local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
 ```
 
-## Return/Send encoder
+## Return Track Encoders (8-11)
 
-Send/return tracks encoders (8-11):
-
-Setup:
+### Setup
 ```lua
 self:led_color(1, {{87, 255, 165, 1}})
 ```
 
-Button:
+### Button
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
 midi_send(CH, MIDI_NOTE, note, val)
 ```
 
-Encoder:
+### Encoder
 ```lua
 local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
 ```
 
-## Launch/volume encoders
+## Clip/Volume Encoders (12-15)
 
-Launch/volume encoders (12-15):
-
-Setup:
+### Setup
 ```lua
 self:led_color(1, {{255, 255, 0, 1}})
 ```
 
-Button:
+### Button
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
 midi_send(CH, MIDI_NOTE, note, val)
 ```
 
-Encoder:
+### Encoder
 ```lua
 local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
 ```
 
-## Lua snippets
+## Lua Snippets
 
-Button long-press detector:
+### Long Press Detection
+
 ```lua
 if self:button_state() == 0 then
     if self:button_elapsed_time() > 1000 then
-        print("long press, after 1 seconds")
+        print("long press")
     else
         print("short press")
     end
 end
 ```
 
-For reference, see the [Grid Lua API Reference](docs/GRID_LUA.md) for documentation on handlers, elements, and global functions.
+See [Grid Lua API Reference](docs/GRID_LUA.md) for full documentation.
 
-# Known issues
+---
 
-On Control Surface initialisation Ableton sends out values as MIDI messages,
-however EN16 installs MIDI callback handler later, so these messages are skipped
-or partially processed. As remediation, we request parameter update
-in `setup` handler via delayed timer event.
+## Known Issues
+
+**Initial sync delay**: On startup, Ableton sends parameter values before EN16's MIDI callback is ready. The timer event sends a sync request (note 64) to trigger a refresh after 1 second.
+
+## License
+
+MIT
