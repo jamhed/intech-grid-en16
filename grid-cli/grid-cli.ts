@@ -3,6 +3,7 @@ import { SerialPort } from "serialport";
 import { program } from "commander";
 import * as fs from "fs";
 import * as path from "path";
+import { loadLuaConfig } from "./lua-loader.js";
 
 // Dynamically import grid-protocol to work around ESM issues
 const gridProtocol = await import("@intechstudio/grid-protocol");
@@ -504,7 +505,7 @@ program.name("grid-cli").description("Grid device configuration CLI").version("1
 program
   .command("upload")
   .description("Upload configuration to Grid device")
-  .argument("<config>", "Path to config JSON file")
+  .argument("<config>", "Path to config file (.json or .lua)")
   .option("-p, --port <path>", "Serial port path (auto-detect if not specified)")
   .option("--page <n>", "Upload to specific page only (0-3)", (v) => parseInt(v, 10))
   .option("-v, --verbose", "Show detailed progress")
@@ -519,8 +520,13 @@ program
 
     let config: ConfigFile;
     try {
-      const raw = fs.readFileSync(fullPath, "utf-8");
-      config = JSON.parse(raw);
+      const ext = path.extname(fullPath).toLowerCase();
+      if (ext === ".lua") {
+        config = await loadLuaConfig(fullPath);
+      } else {
+        const raw = fs.readFileSync(fullPath, "utf-8");
+        config = JSON.parse(raw);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to parse config file: ${msg}`);
