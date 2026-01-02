@@ -1,7 +1,0 @@
-{
-  "include": ["."],
-  "exclude": ["__ext__"],
-  "extraPaths": ["__ext__/AbletonLive12_MIDIRemoteScripts"],
-  "pythonVersion": "3.14",
-  "typeCheckingMode": "basic"
-}

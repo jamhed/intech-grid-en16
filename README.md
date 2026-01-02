@@ -35,10 +35,13 @@ Control Ableton Live with the Intech EN16 grid controller.
 ```
 Intech/
 ├── __init__.py              # Entry point
-├── Grid.py                  # Control surface implementation
-├── grid/
+├── control_surface/         # Python project
+│   ├── Grid.py              # Control surface implementation
+│   ├── pyproject.toml
+│   └── pyrightconfig.json
+├── configs/
 │   └── EN16-Control.json    # Grid controller configuration
-├── tools/
+├── grid-cli/
 │   ├── grid-cli.ts          # Upload/download Grid configs
 │   └── README.md            # CLI documentation
 ├── docs/
@@ -106,17 +109,17 @@ A command-line tool for uploading/downloading Grid controller configurations wit
 ## Quick Start
 
 ```bash
-cd tools
+cd grid-cli
 npm install
 
 # Upload config to device
-npx tsx grid-cli.ts upload ../grid/EN16-Control.json
+npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 
 # Download config from device
 npx tsx grid-cli.ts download ./backup.json -t EN16
 ```
 
-See [tools/README.md](tools/README.md) for full documentation.
+See [grid-cli/README.md](grid-cli/README.md) for full documentation.
 
 ---
 
