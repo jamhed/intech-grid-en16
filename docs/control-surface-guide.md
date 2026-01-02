@@ -26,7 +26,6 @@ Intech/
 ├── __init__.py              # Entry point + specification
 ├── elements.py              # MIDI control definitions
 ├── mappings.py              # Control → component wiring
-├── skin.py                  # LED feedback colors (required!)
 ├── session.py               # Custom session behavior
 └── target_track_controls.py # Selected track parameters
 ```
@@ -60,7 +59,7 @@ Capability flags:
 
 ## Step 2: Define Elements (`elements.py`)
 
-Elements represent physical controls. Import `ElementsBase` from `ableton.v3.control_surface`:
+Elements represent physical controls. Basic example:
 
 ```python
 from ableton.v3.control_surface import ElementsBase, MIDI_CC_TYPE, MIDI_NOTE_TYPE
@@ -80,13 +79,6 @@ class Elements(ElementsBase):
             msg_type=MIDI_CC_TYPE,
         )
 
-        # Device parameter encoders (first 8)
-        self.add_encoder_matrix(
-            [list(range(32, 40))],
-            "Device_Encoders",
-            msg_type=MIDI_CC_TYPE,
-        )
-
         # Track select buttons
         self.add_button_matrix(
             [list(range(32, 40))],
@@ -102,6 +94,8 @@ class Elements(ElementsBase):
         )
 ```
 
+> **Note**: For proper MIDI feedback when controlling parameters, see [Custom Encoder with MIDI Feedback](#custom-encoder-with-midi-feedback) below.
+
 ### Element Naming Convention
 
 The framework auto-generates element references based on the name you provide:
@@ -116,6 +110,56 @@ The framework auto-generates element references based on the name you provide:
 - Use `"encoders_raw[0]"` for the first encoder
 - Use `"encoders_raw[0:8]"` for a slice
 - Create separate named matrices for different groups
+
+### Custom Encoder with MIDI Feedback
+
+By default, `EncoderElement` only sends MIDI feedback for internal parameters (custom `InternalParameter` objects), not Live's native parameters like volume or device controls. To get proper MIDI feedback when parameters change:
+
+```python
+from ableton.v3.control_surface import ElementsBase, MIDI_CC_TYPE, MIDI_NOTE_TYPE
+from ableton.v3.control_surface.elements import EncoderElement
+from ableton.v3.live import liveobj_valid, parameter_value_to_midi_value
+
+
+class FeedbackEncoderElement(EncoderElement):
+    """Encoder that sends MIDI feedback for all parameters."""
+
+    def __init__(self, *a, **k):
+        # Allow MIDI output even when element is not forwarded
+        super().__init__(*a, send_should_depend_on_forwarding=False, **k)
+
+    def reset(self):
+        # Send actual parameter value instead of 0
+        if liveobj_valid(self.mapped_object):
+            self._parameter_value_changed()
+
+    def _parameter_value_changed(self):
+        # Send MIDI for ALL parameters, not just internal ones
+        if liveobj_valid(self.mapped_object) and not self._block_internal_parameter_feedback:
+            midi_value = parameter_value_to_midi_value(self.mapped_object, max_value=self._max_value)
+            if len(self._feedback_values) > midi_value:
+                midi_value = self._feedback_values[midi_value]
+                if isinstance(midi_value, tuple):
+                    midi_value = midi_value[0] + (midi_value[1] << 7)
+            self.send_value(midi_value)
+
+
+def create_feedback_encoder(identifier, name, **k):
+    return FeedbackEncoderElement(identifier, name=name, **k)
+
+
+class Elements(ElementsBase):
+    def add_encoder_matrix(self, identifiers, base_name, channels=None, *a, **k):
+        self.add_matrix(
+            identifiers, base_name, *a,
+            channels=channels, element_factory=create_feedback_encoder, **k,
+        )
+```
+
+The three overrides solve:
+- **`send_should_depend_on_forwarding=False`**: Allows MIDI output anytime, not just when element is actively grabbed
+- **`reset()`**: Sends actual value instead of 0 when layers grab/release elements
+- **`_parameter_value_changed()`**: Removes `is_internal_parameter()` check that blocks Live parameter feedback
 
 ### Session Matrix Layout
 
@@ -178,103 +222,7 @@ The framework provides these components automatically:
 | `Target_Track` | Track selection provider | (no direct mappings, provides dependency) |
 | `View_Based_Recording` | Recording follows view | (no direct mappings) |
 
-## Step 4: Create Skin for LED Feedback (`skin.py`)
-
-**This step is critical for MIDI feedback.** Without a Skin, Ableton will not send any data back to your controller - no LED updates, no button states, nothing.
-
-### Why Skin is Required
-
-In v3, button colors/states are set via skin values like `"Session.ClipPlaying"` or `"Mixer.ArmOn"`. The framework looks up these values in your Skin class to determine what MIDI value to send. Without a skin:
-- `button.color = "Session.ClipPlaying"` → lookup fails → no MIDI sent
-- Your controller LEDs stay dark
-
-### Basic Skin for Simple LEDs
-
-For controllers with simple on/off LEDs (not RGB), use `BasicColors`:
-
-```python
-from ableton.v3.control_surface.colors import BasicColors
-
-
-class Skin:
-    """Simple on/off skin for LEDs."""
-
-    class DefaultButton:
-        On = BasicColors.ON      # sends 127
-        Off = BasicColors.OFF    # sends 0
-        Pressed = BasicColors.ON
-        Disabled = BasicColors.OFF
-
-    class Mixer:
-        ArmOn = BasicColors.ON
-        ArmOff = BasicColors.OFF
-        MuteOn = BasicColors.ON
-        MuteOff = BasicColors.OFF
-        SoloOn = BasicColors.ON
-        SoloOff = BasicColors.OFF
-        Selected = BasicColors.ON
-        NotSelected = BasicColors.OFF
-        NoTrack = BasicColors.OFF
-
-    class Session:
-        Slot = BasicColors.OFF
-        SlotEmpty = BasicColors.OFF
-        NoSlot = BasicColors.OFF
-        ClipStopped = BasicColors.ON
-        ClipPlaying = BasicColors.ON
-        ClipRecording = BasicColors.ON
-        ClipTriggeredPlay = BasicColors.ON
-        ClipTriggeredRecord = BasicColors.ON
-
-    class Transport:
-        PlayOn = BasicColors.ON
-        PlayOff = BasicColors.OFF
-        RecordOn = BasicColors.ON
-        RecordOff = BasicColors.OFF
-```
-
-### Register Skin in Specification
-
-```python
-from ableton.v3.control_surface import create_skin
-from .skin import Skin
-
-class Specification(ControlSurfaceSpecification):
-    control_surface_skin = create_skin(skin=Skin)
-    # ... rest of specification
-```
-
-### Skin Value Lookup
-
-When the framework sets a button color:
-```python
-self.launch_button.color = "Session.ClipPlaying"
-```
-
-It resolves to:
-1. Look for `Skin.Session.ClipPlaying`
-2. Get `BasicColors.ON` (which is `SimpleColor(127)`)
-3. Send MIDI note/CC with value 127 to the button
-
-### RGB Controllers
-
-For RGB controllers, define custom colors:
-```python
-from ableton.v3.control_surface.elements import SimpleColor
-
-class Rgb:
-    RED = SimpleColor(5)      # Controller-specific color index
-    GREEN = SimpleColor(21)
-    BLUE = SimpleColor(45)
-    # etc.
-
-class Skin:
-    class Session:
-        ClipPlaying = Rgb.GREEN
-        ClipRecording = Rgb.RED
-```
-
-## Step 5: Create Specification (`__init__.py`)
+## Step 4: Create Specification (`__init__.py`)
 
 The specification ties everything together:
 
