@@ -54,6 +54,7 @@ Convert a Lua config file to JSON format (minified by default):
 ```bash
 npx tsx grid-cli.ts convert ../configs/EN16-Control.lua
 npx tsx grid-cli.ts convert ../configs/EN16-Control.lua -o output.json
+npx tsx grid-cli.ts convert ../configs/EN16-Control.lua -r        # with identifier renaming
 npx tsx grid-cli.ts convert ../configs/EN16-Control.lua --no-minify
 ```
 
@@ -62,12 +63,46 @@ Options:
 | Flag | Description |
 |------|-------------|
 | `-o, --output <path>` | Output file path (prints to stdout if not specified) |
+| `-r, --rename` | Rename user variables/functions to short names |
 | `--no-minify` | Skip minification (keep human-readable function names) |
+
+#### Minification
 
 Minification uses `@intechstudio/grid-protocol` to:
 
 - Convert long function names to short aliases (`encoder_value` → `eva`)
 - Remove unnecessary whitespace
+
+#### Identifier Renaming (`-r`)
+
+The `-r` flag enables additional minification by renaming user-defined variables and functions to short names (`a`, `b`, `c`, etc.):
+
+```lua
+-- Before
+MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
+local note, val = 32 + self:element_index(), self:button_value()
+
+-- After (-r)
+a, b, c = 144, 176, page_current()
+local d, e = 32 + self:element_index(), self:button_value()
+```
+
+**What gets renamed:**
+
+- User-defined global variables (`MIDI_NOTE`, `CH`, etc.)
+- User-defined functions (`midirx_cb`, helper functions)
+- Local variables and function parameters
+
+**What is preserved:**
+
+- Single-letter identifiers (already minimal)
+- Reserved identifiers (`self`, `event`, `header`)
+- Grid builtins (`midi_send`, `led_color`, `element`, `page_current`, etc.)
+- Lua keywords
+
+**Collision avoidance:** Existing short names are preserved. If your code has `local a = 1`, another variable won't be renamed to `a`.
+
+**Size savings:** ~8% additional reduction (e.g., 725 bytes on EN16-Control.lua)
 
 ## Config File Formats
 
@@ -234,6 +269,7 @@ Reduce by 25 characters.
 
 Minify your Lua scripts:
 
+- Use `-r` flag: `npx tsx grid-cli.ts convert config.lua -r` (renames variables/functions)
 - Use short function names: `self:eva()` instead of `self:encoder_value()`
 - Remove comments and whitespace
 - Combine statements: `local a,b=1,2`
