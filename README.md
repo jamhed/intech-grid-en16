@@ -48,7 +48,8 @@ Intech/
 │   └── README.md            # CLI documentation
 ├── docs/
 │   ├── EN16_CONFIG.md       # EN16 configuration guide
-│   └── GRID_LUA.md          # Grid Lua API reference
+│   ├── GRID_LUA.md          # Grid Lua API reference
+│   └── GRID_FIRMWARE.md     # Firmware internals
 └── __ext__/
     └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
 ```
@@ -155,6 +156,7 @@ See [EN16 Configuration Guide](docs/EN16_CONFIG.md) for detailed Lua scripts and
 - [EN16 Configuration Guide](docs/EN16_CONFIG.md) - Element scripts and MIDI routing
 - [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
 - [Grid Lua API](docs/GRID_LUA.md) - Full API reference
+- [Grid Firmware Internals](docs/GRID_FIRMWARE.md) - Device runtime details
 
 ---
 
