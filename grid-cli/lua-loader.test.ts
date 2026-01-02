@@ -967,18 +967,36 @@ describe("renameIdentifiers", () => {
       expect(result[0]).toContain("self:");
     });
 
-    it("does not rename 'event'", () => {
+    it("renames 'event' parameter", () => {
       const scripts = ["local cmd = event[2]"];
       const result = renameIdentifiers(scripts);
 
-      expect(result[0]).toContain("event[2]");
+      // 'event' is a function parameter, can be renamed
+      expect(result[0]).not.toContain("event");
     });
 
-    it("does not rename 'header'", () => {
+    it("renames 'header' parameter", () => {
       const scripts = ["if header[1] == 13 then end"];
       const result = renameIdentifiers(scripts);
 
-      expect(result[0]).toContain("header[1]");
+      // 'header' is a function parameter, can be renamed
+      expect(result[0]).not.toContain("header");
+    });
+
+    it("does not rename 'midirx_cb' callback", () => {
+      const scripts = ["function midirx_cb(self, event, header) local cmd = event[2] end"];
+      const result = renameIdentifiers(scripts);
+
+      // Callback name must be preserved (firmware looks for this name)
+      expect(result[0]).toContain("midirx_cb");
+    });
+
+    it("does not rename 'sysex_cb' callback", () => {
+      const scripts = ["function sysex_cb(self, data) print(data) end"];
+      const result = renameIdentifiers(scripts);
+
+      // Callback name must be preserved (firmware looks for this name)
+      expect(result[0]).toContain("sysex_cb");
     });
   });
 
@@ -1260,8 +1278,8 @@ end`,
       expect(result[0]).not.toContain("MIDI_CC");
       expect(result[0]).not.toContain("CH");
 
-      // Callback name should be renamed
-      expect(result[0]).not.toContain("midirx_cb");
+      // Callback name should NOT be renamed (firmware expects this name)
+      expect(result[0]).toContain("midirx_cb");
 
       // Locals should be renamed
       expect(result[0]).not.toContain("cmd");
@@ -1270,8 +1288,9 @@ end`,
 
       // Reserved should NOT be renamed
       expect(result[0]).toContain("self");
-      expect(result[0]).toContain("event[");
-      expect(result[0]).toContain("header");
+      // 'event' and 'header' are parameters, they CAN be renamed
+      expect(result[0]).not.toContain("event");
+      expect(result[0]).not.toContain("header");
 
       // Builtins should NOT be renamed
       expect(result[0]).toContain("page_current");

@@ -446,8 +446,9 @@ const LUA_KEYWORDS = new Set([
 
 // Reserved identifiers that should not be renamed
 const RESERVED_IDENTIFIERS = new Set([
-  "self", "event", "header", // Grid callback parameters
+  "self", // Grid implicit self parameter
   "_ENV", "_G", // Lua environment
+  "midirx_cb", "sysex_cb", // Grid callback function names (firmware expects these)
 ]);
 
 /**

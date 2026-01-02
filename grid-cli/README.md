@@ -90,13 +90,14 @@ local d, e = 32 + self:element_index(), self:button_value()
 **What gets renamed:**
 
 - User-defined global variables (`MIDI_NOTE`, `CH`, etc.)
-- User-defined functions (`midirx_cb`, helper functions)
-- Local variables and function parameters
+- User-defined helper functions
+- Local variables and function parameters (`event`, `header`, `cmd`, etc.)
 
 **What is preserved:**
 
 - Single-letter identifiers (already minimal)
-- Reserved identifiers (`self`, `event`, `header`)
+- `self` (Grid implicit parameter)
+- Callback function names (`midirx_cb`, `sysex_cb`) - firmware expects these
 - Grid builtins (`midi_send`, `led_color`, `element`, `page_current`, etc.)
 - Lua keywords
 
