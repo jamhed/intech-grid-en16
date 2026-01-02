@@ -5,7 +5,7 @@ Command-line tool for uploading and downloading Grid controller configurations.
 ## Installation
 
 ```bash
-cd tools
+cd grid-cli
 npm install
 ```
 
@@ -16,7 +16,7 @@ npm install
 Upload a JSON config file to a connected Grid device:
 
 ```bash
-npx tsx grid-cli.ts upload ../grid/EN16-Control.json
+npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 ```
 
 Options:
