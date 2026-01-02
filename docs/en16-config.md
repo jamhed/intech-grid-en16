@@ -38,7 +38,7 @@ npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 The system element (index 255 in config, physical element 16) handles:
 
 - MIDI feedback routing from Ableton
-- Periodic sync requests via timer
+- One-shot sync request via timer (startup race condition workaround)
 
 #### Setup Event (init)
 
@@ -67,7 +67,7 @@ self:timer_start(1000)
 - Note messages (cmd=144) control LED brightness for buttons
 - Note messages with el >= 16 set LED color for arm state (red=armed, blue=unarmed)
 - CC messages (cmd=176) update encoder ring positions
-- Timer triggers sync request every 1000ms
+- Timer fires once after 1000ms to trigger sync (see Known Issues in README)
 
 #### Timer Event
 
@@ -75,7 +75,7 @@ self:timer_start(1000)
 midi_send(CH, MIDI_NOTE, 64, 127)
 ```
 
-Sends Note 64 to trigger Ableton's `update()` method, syncing all parameter values.
+Fires once after 1 second delay. Sends Note 64 to trigger Ableton's `update()` method, syncing all parameter values after the EN16's MIDI callback is ready.
 
 ### Track/Device Encoders (Elements 0-7)
 

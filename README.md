@@ -2,7 +2,29 @@
 
 ![Intech EN16](docs/en16.png)
 
-Control Ableton Live with the Intech EN16 grid controller.
+A custom Ableton Live control surface for the [Intech Grid EN16](https://intech.studio/shop/en16) controller.
+
+## How It Works
+
+This integration has two parts that communicate via MIDI:
+
+```mermaid
+flowchart LR
+    subgraph EN16["EN16 Controller"]
+        Lua["Lua Scripts"]
+    end
+    subgraph Ableton["Ableton Live"]
+        Python["Python Control Surface"]
+    end
+    Lua <-->|MIDI| Python
+```
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Control Surface** | `control_surface/Grid.py` | Python script running in Ableton that maps MIDI to tracks, devices, and clips |
+| **EN16 Configuration** | `configs/EN16-Control.lua` | Lua scripts running on the EN16 that handle encoders, buttons, and LED feedback |
+
+Both sides must agree on the MIDI layout (which CC/Note numbers mean what). See [Control Surface Architecture](docs/control-surface.md) for details.
 
 ## Features
 
@@ -21,7 +43,9 @@ Control Ableton Live with the Intech EN16 grid controller.
 
 ## Installation
 
-1. Copy this folder to Ableton's Remote Scripts location:
+### 1. Control Surface (Ableton)
+
+1. Copy this folder to Ableton's Remote Scripts:
 
    ```text
    ~/Music/Ableton/User Library/Remote Scripts/Intech
@@ -33,6 +57,26 @@ Control Ableton Live with the Intech EN16 grid controller.
 
 4. Restart Ableton Live
 
+### 2. EN16 Configuration
+
+Upload the Lua configuration to your EN16 using Grid Editor or the CLI tool:
+
+```bash
+cd grid-cli && npm install
+npx tsx grid-cli.ts upload ../configs/EN16-Control.json
+```
+
+See [EN16 Configuration Guide](docs/en16-config.md) for details on the Lua scripts.
+
+## Documentation
+
+- [Control Surface Architecture](docs/control-surface.md) - How the Ableton integration works
+- [EN16 Configuration Guide](docs/en16-config.md) - Element scripts and MIDI routing
+- [Lua Config Authoring Guide](docs/lua-config-guide.md) - Write configs in Lua
+- [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
+- [Grid Lua API](docs/grid-lua.md) - Full API reference
+- [Grid Firmware Internals](docs/grid-firmware.md) - Device runtime details
+
 ## Project Structure
 
 ```text
@@ -43,28 +87,19 @@ Intech/
 ├── configs/
 │   ├── EN16-Control.json    # Grid config (JSON)
 │   └── EN16-Control.lua     # Grid config (Lua)
-├── grid-cli/
-│   ├── grid-cli.ts          # CLI tool
-│   └── lua-loader.ts        # Lua config parser
-├── docs/
-│   ├── lua-config-guide.md  # Lua config authoring
-│   ├── en16-config.md       # EN16 configuration
-│   ├── grid-lua.md          # Lua API reference
-│   ├── grid-firmware.md     # Firmware internals
-│   └── api/                 # Handler documentation
-├── scripts/
-│   └── check-docs.sh        # Lint & validate docs
-└── __ext__/                 # Git submodules
+├── grid-cli/                # CLI tool for config upload/download
+├── docs/                    # Documentation
+└── __ext__/                 # Git submodules (reference scripts)
 ```
 
 ## Development
 
 ### Prerequisites
 
-- Ableton Live 11+ (uses `_Framework`)
+- Ableton Live 11+
 - Python 3.x (bundled with Live)
 
-### Enable Script Reloading
+### Script Reloading
 
 Add to `Options.txt` (requires Ableton Beta):
 
@@ -72,46 +107,20 @@ Add to `Options.txt` (requires Ableton Beta):
 -_ToolsMenuRemoteScripts
 ```
 
-Location:
+Location: `~/Library/Preferences/Ableton/Live x.x.x/Options.txt` (macOS) or `%APPDATA%\Ableton\Live x.x.x\Preferences\Options.txt` (Windows)
 
-- macOS: `/Users/[username]/Library/Preferences/Ableton/Live x.x.x/Options.txt`
-- Windows: `%APPDATA%\Ableton\Live x.x.x\Preferences\Options.txt`
-
-### View Logs
-
-```bash
-# macOS
-tail -f ~/Library/Preferences/Ableton/Live\ */Log.txt | grep -i intech
-
-# Windows
-Get-Content "$env:APPDATA\Ableton\Live *\Preferences\Log.txt" -Wait | Select-String "intech"
-```
-
-### Clear Cache Before Reload
-
-After editing Python files, clear the bytecode cache:
+After editing Python files, clear cache and reload:
 
 ```bash
 rm -rf __pycache__
 ```
 
-Then reload via Preferences (toggle Control Surface) or Tools → Reload MIDI Remote Scripts.
+Then toggle Control Surface in Preferences or use Tools → Reload MIDI Remote Scripts.
 
-### Type Checking
-
-This project includes `AbletonLive12_MIDIRemoteScripts` as a git submodule for type hints:
+### Logs
 
 ```bash
-git submodule update --init
-```
-
-### Validate Documentation
-
-Lint markdown and check cross-links:
-
-```bash
-./scripts/check-docs.sh        # check
-./scripts/check-docs.sh --fix  # auto-fix
+tail -f ~/Library/Preferences/Ableton/Live\ */Log.txt | grep -i intech
 ```
 
 ### References
@@ -119,66 +128,9 @@ Lint markdown and check cross-links:
 - [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) - Decompiled scripts
 - [ableton-control-surface-toolkit](https://github.com/oslo1989/ableton-control-surface-toolkit) - Live object documentation
 
----
-
-## Grid CLI Tool
-
-A command-line tool for uploading/downloading Grid controller configurations without Grid Editor.
-
-## Quick Start
-
-```bash
-cd grid-cli
-npm install
-
-# Upload config to device
-npx tsx grid-cli.ts upload ../configs/EN16-Control.json
-
-# Download config from device
-npx tsx grid-cli.ts download ./backup.json -t EN16
-```
-
-See [grid-cli/README.md](grid-cli/README.md) for full documentation.
-
----
-
-## EN16 Configuration
-
-The controller requires a custom Lua profile to send MIDI messages and receive feedback from Ableton.
-
-## MIDI Layout
-
-| Control | Type | Channel | Identifiers |
-|---------|------|---------|-------------|
-| Encoders | CC | 0 | 32-47 |
-| Buttons | Note | 0 | 32-47 |
-| Long Buttons | Note | 0 | 48-63 |
-| Control Button | Note | 0 | 64 |
-
-## Setup
-
-Configure the EN16 using [Grid Editor](https://docs.intech.studio/guides/introduction) or upload via CLI:
-
-```bash
-cd grid-cli && npm install
-npx tsx grid-cli.ts upload ../configs/EN16-Control.json
-```
-
-See [EN16 Configuration Guide](docs/en16-config.md) for detailed Lua scripts and explanation.
-
-## References
-
-- [EN16 Configuration Guide](docs/en16-config.md) - Element scripts and MIDI routing
-- [Lua Config Authoring Guide](docs/lua-config-guide.md) - Write configs in Lua
-- [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
-- [Grid Lua API](docs/grid-lua.md) - Full API reference
-- [Grid Firmware Internals](docs/grid-firmware.md) - Device runtime details
-
----
-
 ## Known Issues
 
-**Initial sync delay**: On startup, Ableton sends parameter values before EN16's MIDI callback is ready. The timer event sends a sync request (note 64) to trigger a refresh after 1 second.
+**Initial sync delay**: On startup, Ableton sends parameter values before EN16's MIDI callback is ready. A one-shot timer fires after 1 second to request a refresh.
 
 ## License
 
