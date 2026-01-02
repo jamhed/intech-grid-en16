@@ -81,46 +81,47 @@ Standard format exported by Grid Editor:
 
 ### Lua Format
 
-Human-readable format with full Lua scripts. Easier to edit than JSON:
+Human-readable format using the grid library. Easier to edit than JSON:
 
 ```lua
--- EN16 Configuration
-return {
-  name = "EN16-Control",
-  type = "EN16",
-  version = { major = "1", minor = "0", patch = "0" },
+local grid = require("grid")
 
-  -- Element 0: Track encoder
+local BLUE = {0, 0, 255, 1}
+
+return grid.config {
+  name = "EN16 Control",
+  type = "EN16",
+  version = {1, 0, 0},
+
   [0] = {
-    init = [[
-      self:led_color(1, {{0, 0, 255, 1}})
-    ]],
-    encoder = [[
-      local cc, val = 32 + self:element_index(), self:encoder_value()
-      midi_send(CH, MIDI_CC, cc, val)
-    ]],
-    button = [[
-      local note, val = 32 + self:element_index(), self:button_value()
-      midi_send(CH, MIDI_NOTE, note, val)
-    ]],
+    init = function(self)
+      self:glc(1, {BLUE})
+    end,
+    encoder = function(self)
+      local cc, val = 32 + self:ind(), self:eva()
+      gms(CH, MIDI_CC, cc, val)
+    end,
+    button = function(self)
+      local note, val = 32 + self:ind(), self:bva()
+      gms(CH, MIDI_NOTE, note, val)
+    end,
   },
 
-  -- Element 255: System
   [255] = {
-    init = [[
-      MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
-      self:timer_start(1000)
-    ]],
-    timer = [[
-      midi_send(CH, MIDI_NOTE, 64, 127)
-    ]],
+    init = function(self)
+      MIDI_NOTE, MIDI_CC, CH = 144, 176, gpc()
+      self:gtt(1000)
+    end,
+    timer = function(self)
+      gms(CH, MIDI_NOTE, 64, 127)
+    end,
   },
 }
 ```
 
 The CLI automatically detects the format by file extension (`.json` or `.lua`).
 
-For a complete example, see [EN16 Configuration Guide](../docs/EN16_CONFIG.md).
+For a complete example, see [EN16-Control.lua](../configs/EN16-Control.lua) and [EN16 Configuration Guide](../docs/EN16_CONFIG.md).
 
 ### Event Types
 
