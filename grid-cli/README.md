@@ -45,7 +45,13 @@ Options:
 
 Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
-## Config File Format
+## Config File Formats
+
+The CLI supports two configuration formats: JSON and Lua.
+
+### JSON Format
+
+Standard format exported by Grid Editor:
 
 ```json
 {
@@ -72,6 +78,49 @@ Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
   ]
 }
 ```
+
+### Lua Format
+
+Human-readable format with full Lua scripts. Easier to edit than JSON:
+
+```lua
+-- EN16 Configuration
+return {
+  name = "EN16-Control",
+  type = "EN16",
+  version = { major = "1", minor = "0", patch = "0" },
+
+  -- Element 0: Track encoder
+  [0] = {
+    init = [[
+      self:led_color(1, {{0, 0, 255, 1}})
+    ]],
+    encoder = [[
+      local cc, val = 32 + self:element_index(), self:encoder_value()
+      midi_send(CH, MIDI_CC, cc, val)
+    ]],
+    button = [[
+      local note, val = 32 + self:element_index(), self:button_value()
+      midi_send(CH, MIDI_NOTE, note, val)
+    ]],
+  },
+
+  -- Element 255: System
+  [255] = {
+    init = [[
+      MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
+      self:timer_start(1000)
+    ]],
+    timer = [[
+      midi_send(CH, MIDI_NOTE, 64, 127)
+    ]],
+  },
+}
+```
+
+The CLI automatically detects the format by file extension (`.json` or `.lua`).
+
+For a complete example, see [EN16 Configuration Guide](../docs/EN16_CONFIG.md).
 
 ### Event Types
 

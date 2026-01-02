@@ -47,6 +47,7 @@ Intech/
 │   ├── grid-cli.ts          # Upload/download Grid configs
 │   └── README.md            # CLI documentation
 ├── docs/
+│   ├── EN16_CONFIG.md       # EN16 configuration guide
 │   └── GRID_LUA.md          # Grid Lua API reference
 └── __ext__/
     └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
@@ -127,7 +128,7 @@ See [grid-cli/README.md](grid-cli/README.md) for full documentation.
 
 # EN16 Configuration
 
-The controller requires a custom profile configured via [Grid Editor](https://docs.intech.studio/guides/introduction) or the [Grid CLI tool](grid-cli/README.md).
+The controller requires a custom Lua profile to send MIDI messages and receive feedback from Ableton.
 
 ## MIDI Layout
 
@@ -138,115 +139,22 @@ The controller requires a custom profile configured via [Grid Editor](https://do
 | Long Buttons | Note | 0 | 48-63 |
 | Control Button | Note | 0 | 64 |
 
-## System Element (Element 16)
+## Setup
 
-Handles MIDI feedback from Ableton and periodic sync requests.
+Configure the EN16 using [Grid Editor](https://docs.intech.studio/guides/introduction) or upload via CLI:
 
-### Setup Event
-
-```lua
-MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
-function self.midirx_cb(self, event, header)
-    if header[1] ~= 13 then
-        return
-    end
-    local cmd, el, val = event[2], event[3] - 32, event[4]
-    local on = val == 127
-    if cmd == MIDI_NOTE and el >= 16 then
-        element[el - 16]:led_color(1, {on and {255, 0, 0, 1} or {0, 0, 255, 1}})
-    elseif cmd == MIDI_NOTE then
-        element[el]:led_value(1, on and 100 or 0)
-    elseif cmd == MIDI_CC and el < 16 then
-        element[el]:encoder_value(val)
-    end
-end
-self:timer_start(1000)
+```bash
+cd grid-cli && npm install
+npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 ```
 
-### Timer Event
+See [EN16 Configuration Guide](docs/EN16_CONFIG.md) for detailed Lua scripts and explanation.
 
-```lua
-midi_send(CH, MIDI_NOTE, 64, 127)
-```
+## References
 
-## Track/Device Encoders (0-7)
-
-### Setup
-```lua
-self:led_color(1, {{0, 0, 255, 1}})
-```
-
-### Button
-```lua
-local note, val = 32 + self:element_index(), self:button_value()
-if self:button_state() == 0 then
-    if self:button_elapsed_time() > 1000 then
-        note = note + 16
-        val = 127
-    end
-end
-midi_send(CH, MIDI_NOTE, note, val)
-```
-
-### Encoder
-```lua
-local cc, val = 32 + self:element_index(), self:encoder_value()
-midi_send(CH, MIDI_CC, cc, val)
-```
-
-## Return Track Encoders (8-11)
-
-### Setup
-```lua
-self:led_color(1, {{87, 255, 165, 1}})
-```
-
-### Button
-```lua
-local note, val = 32 + self:element_index(), self:button_value()
-midi_send(CH, MIDI_NOTE, note, val)
-```
-
-### Encoder
-```lua
-local cc, val = 32 + self:element_index(), self:encoder_value()
-midi_send(CH, MIDI_CC, cc, val)
-```
-
-## Clip/Volume Encoders (12-15)
-
-### Setup
-```lua
-self:led_color(1, {{255, 255, 0, 1}})
-```
-
-### Button
-```lua
-local note, val = 32 + self:element_index(), self:button_value()
-midi_send(CH, MIDI_NOTE, note, val)
-```
-
-### Encoder
-```lua
-local cc, val = 32 + self:element_index(), self:encoder_value()
-midi_send(CH, MIDI_CC, cc, val)
-```
-
-## Lua Snippets
-
-### Long Press Detection
-
-```lua
-if self:button_state() == 0 then
-    if self:button_elapsed_time() > 1000 then
-        print("long press")
-    else
-        print("short press")
-    end
-end
-```
-
-See [Grid Lua API Reference](docs/GRID_LUA.md) for full documentation.
+- [EN16 Configuration Guide](docs/EN16_CONFIG.md) - Element scripts and MIDI routing
+- [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
+- [Grid Lua API](docs/GRID_LUA.md) - Full API reference
 
 ---
 
