@@ -169,10 +169,7 @@ export function getErrorMessage(err: unknown): string {
 /**
  * Iterate over all events in a config, calling fn for each.
  */
-export function forEachEvent(
-  config: ConfigFile,
-  fn: (element: ElementConfig, event: EventConfig) => void
-): void {
+export function forEachEvent(config: ConfigFile, fn: (element: ElementConfig, event: EventConfig) => void): void {
   for (const element of config.configs) {
     for (const event of element.events) {
       fn(element, event);

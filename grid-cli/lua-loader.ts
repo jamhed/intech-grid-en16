@@ -18,8 +18,7 @@ type LuaState = ReturnType<typeof lauxlib.luaL_newstate>;
 /**
  * Convert negative stack index to absolute index.
  */
-const toAbsoluteIndex = (L: LuaState, idx: number): number =>
-  idx < 0 ? lua.lua_gettop(L) + idx + 1 : idx;
+const toAbsoluteIndex = (L: LuaState, idx: number): number => (idx < 0 ? lua.lua_gettop(L) + idx + 1 : idx);
 
 // Reverse lookup: event name -> event ID
 const EVENT_IDS: Record<string, number> = Object.fromEntries(
@@ -661,10 +660,7 @@ function analyzeScripts(scripts: string[]): {
 /**
  * Rename identifiers in a single script using pre-parsed data.
  */
-function renameScriptWithAnalysis(
-  analysis: ScriptAnalysis,
-  globalRenames: Map<string, string>
-): string {
+function renameScriptWithAnalysis(analysis: ScriptAnalysis, globalRenames: Map<string, string>): string {
   const { source, identifiers, keptNames } = analysis;
   if (identifiers.length === 0) return source;
 
@@ -673,7 +669,13 @@ function renameScriptWithAnalysis(
   const nameGen = new NameGenerator(globalRenames.values(), keptNames);
 
   for (const id of identifiers) {
-    if (id.isLocal && id.isDeclaration && shouldRename(id.name) && needsRenaming(id.name) && !localRenames.has(id.name)) {
+    if (
+      id.isLocal &&
+      id.isDeclaration &&
+      shouldRename(id.name) &&
+      needsRenaming(id.name) &&
+      !localRenames.has(id.name)
+    ) {
       localRenames.set(id.name, nameGen.next());
     }
   }

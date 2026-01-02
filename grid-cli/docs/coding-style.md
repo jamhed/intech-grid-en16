@@ -15,8 +15,7 @@ TypeScript coding conventions for grid-cli, based on industry best practices.
 
 ```typescript
 // Good: Single-expression predicates as arrow functions
-const shouldRename = (name: string): boolean =>
-  !LUA_KEYWORDS.has(name) && !RESERVED_IDENTIFIERS.has(name);
+const shouldRename = (name: string): boolean => !LUA_KEYWORDS.has(name) && !RESERVED_IDENTIFIERS.has(name);
 
 // Avoid: Verbose multi-line for simple logic
 function shouldRename(name: string): boolean {
@@ -31,7 +30,7 @@ function shouldRename(name: string): boolean {
 ```typescript
 // Good: Self-documenting constants
 const MAX_SERIALIZABLE_ARRAY_LENGTH = 20;
-const FRAME_TERMINATOR_SIZE = 3;  // EOT + 2 checksum bytes
+const FRAME_TERMINATOR_SIZE = 3; // EOT + 2 checksum bytes
 const PROGRESS_BAR_WIDTH = 20;
 
 if (len > MAX_SERIALIZABLE_ARRAY_LENGTH) return null;
@@ -44,8 +43,7 @@ if (len > 20) return null;
 
 ```typescript
 // Good: Reusable helper
-const toAbsoluteIndex = (L: LuaState, idx: number): number =>
-  idx < 0 ? lua.lua_gettop(L) + idx + 1 : idx;
+const toAbsoluteIndex = (L: LuaState, idx: number): number => (idx < 0 ? lua.lua_gettop(L) + idx + 1 : idx);
 
 // Then use everywhere
 const absIdx = toAbsoluteIndex(L, index);
@@ -85,10 +83,7 @@ for (const [elementNum, events] of elementConfigs) {
 // Good: Constructor handles common reserved set
 class NameGenerator {
   constructor(...additionalReserved: Iterable<string>[]) {
-    this.reserved = new Set([
-      ...RESERVED_IDENTIFIERS,
-      ...additionalReserved.flatMap((s) => [...s])
-    ]);
+    this.reserved = new Set([...RESERVED_IDENTIFIERS, ...additionalReserved.flatMap((s) => [...s])]);
   }
 }
 
@@ -118,8 +113,7 @@ function getStringField(L: ReturnType<typeof lauxlib.luaL_newstate>, field: stri
 // Good: Compile once
 const UPPERCASE_CONST_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
-const isUserGlobal = (name: string): boolean =>
-  UPPERCASE_CONST_PATTERN.test(name);
+const isUserGlobal = (name: string): boolean => UPPERCASE_CONST_PATTERN.test(name);
 
 // Avoid: Compile in every call
 function isUserGlobal(name: string): boolean {
@@ -180,6 +174,7 @@ export function mapEvents(...) { ... }
 ### Consistent Error Strategy
 
 Choose one approach per module:
+
 - Throw for unrecoverable errors
 - Return `null` for expected failures (e.g., parsing optional content)
 
@@ -244,6 +239,7 @@ Run formatting: `npm run format`
 ## Linting
 
 Configured via `eslint.config.js`:
+
 - TypeScript recommended rules
 - Unused vars allowed with `_` prefix
 - Prettier integration for formatting conflicts

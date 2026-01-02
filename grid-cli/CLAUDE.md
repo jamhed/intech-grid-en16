@@ -8,12 +8,12 @@ Grid CLI is a TypeScript command-line tool for managing Intech Grid controller c
 
 ## Quick Reference
 
-| File | Purpose |
-|------|---------|
-| `grid-cli.ts` | CLI commands |
-| `connection.ts` | Serial communication |
-| `protocol/` | Packet building/parsing |
-| `lib.ts` | Types, constants, utilities |
+| File            | Purpose                     |
+| --------------- | --------------------------- |
+| `grid-cli.ts`   | CLI commands                |
+| `connection.ts` | Serial communication        |
+| `protocol/`     | Packet building/parsing     |
+| `lib.ts`        | Types, constants, utilities |
 | `lua-loader.ts` | Lua parsing, AST processing |
 
 ## Development Commands
@@ -30,6 +30,7 @@ npm run cli -- <command>  # Run CLI
 **Follow:** [docs/coding-style.md](docs/coding-style.md)
 
 Key patterns in this codebase:
+
 - Arrow functions for predicates: `const shouldRename = (name) => ...`
 - Named constants for magic numbers: `MAX_SERIALIZABLE_ARRAY_LENGTH`
 - Helper functions for repeated logic: `toAbsoluteIndex()`
@@ -53,6 +54,7 @@ Key patterns in this codebase:
 ### Reserved Identifiers (lua-loader.ts)
 
 When modifying identifier renaming, preserve:
+
 - `self` - Grid implicit parameter
 - `midirx_cb`, `sysex_cb` - Firmware callback names
 - Grid builtins from `@intechstudio/grid-protocol`
@@ -63,6 +65,7 @@ When modifying identifier renaming, preserve:
 Tests use Vitest. Run with `npm test`.
 
 **Test patterns:**
+
 - Unit tests for pure functions
 - Integration tests for Lua loading (create temp files)
 - All tests must pass before committing
@@ -70,28 +73,31 @@ Tests use Vitest. Run with `npm test`.
 ## Common Tasks
 
 ### Fix a bug in Lua parsing
+
 1. Add failing test to `lua-loader.test.ts`
 2. Fix in `lua-loader.ts`
 3. Run `npm test` to verify
 
 ### Add a new Grid device type
+
 1. Add to `DEVICE_CONFIG` in `lib.ts`
 2. Add test case in `lib.test.ts`
 3. Update `docs/architecture.md` device table
 
 ### Modify script validation
+
 1. Update `validateActionLength()` in `lib.ts`
 2. Update `MAX_ACTION_LENGTH` if limit changes
 3. Add/update tests in `lib.test.ts`
 
 ## Important Constants
 
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `MAX_ACTION_LENGTH` | 909 | Max chars per script |
-| `SYSTEM_ELEMENT` | 255 | System event element ID |
-| `SERIAL_BAUD_RATE` | 2000000 | USB serial speed |
-| `FRAME_TERMINATOR_SIZE` | 3 | Protocol frame ending |
+| Constant                | Value   | Purpose                 |
+| ----------------------- | ------- | ----------------------- |
+| `MAX_ACTION_LENGTH`     | 909     | Max chars per script    |
+| `SYSTEM_ELEMENT`        | 255     | System event element ID |
+| `SERIAL_BAUD_RATE`      | 2000000 | USB serial speed        |
+| `FRAME_TERMINATOR_SIZE` | 3       | Protocol frame ending   |
 
 ## Dependencies
 
@@ -104,6 +110,7 @@ Tests use Vitest. Run with `npm test`.
 ## Code Quality Checklist
 
 Before committing:
+
 - [ ] `npm test` passes
 - [ ] `npm run lint` has no errors
 - [ ] New functions have JSDoc comments
