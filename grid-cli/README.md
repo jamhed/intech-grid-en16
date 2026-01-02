@@ -45,6 +45,20 @@ Options:
 
 Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
+### Convert Lua to JSON
+
+Convert a Lua config file to JSON format:
+
+```bash
+npx tsx grid-cli.ts convert ../configs/EN16-Control.lua
+npx tsx grid-cli.ts convert ../configs/EN16-Control.lua -o output.json
+```
+
+Options:
+| Flag | Description |
+|------|-------------|
+| `-o, --output <path>` | Output file path (prints to stdout if not specified) |
+
 ## Config File Formats
 
 The CLI supports two configuration formats: JSON and Lua.
@@ -86,13 +100,32 @@ Human-readable format using the grid library. Easier to edit than JSON:
 ```lua
 local grid = require("grid")
 
+-- Local variables (inlined as upvalues)
 local BLUE = {0, 0, 255, 1}
+
+-- System init: globals and callbacks
+MIDI_NOTE, MIDI_CC = 144, 176
+CH = page_current()
+
+function midirx_cb(self, event, header)
+  -- handle MIDI feedback
+end
 
 return grid.config {
   name = "EN16 Control",
   type = "EN16",
   version = {1, 0, 0},
 
+  -- System event handlers
+  utility = function(self)
+    page_load(page_next())
+  end,
+
+  timer = function(self)
+    midi_send(CH, MIDI_NOTE, 64, 127)
+  end,
+
+  -- Element handlers
   [0] = {
     init = function(self)
       self:led_color(1, {BLUE})
@@ -106,18 +139,18 @@ return grid.config {
       midi_send(CH, MIDI_NOTE, note, val)
     end,
   },
-
-  [255] = {
-    init = function(self)
-      MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
-      self:timer_start(1000)
-    end,
-    timer = function(self)
-      midi_send(CH, MIDI_NOTE, 64, 127)
-    end,
-  },
 }
 ```
+
+#### Script Structure
+
+| Section | Description |
+|---------|-------------|
+| `local` variables | Inlined into function bodies as upvalues |
+| Global assignments | Become system init (element 255, event 0) |
+| `midirx_cb`, `sysex_cb` | Callbacks included in system init |
+| `utility`, `timer` | Top-level system event handlers |
+| `[0]`, `[1]`, ... | Element-specific handlers |
 
 The CLI automatically detects the format by file extension (`.json` or `.lua`).
 
@@ -141,10 +174,10 @@ For a complete example, see [EN16-Control.lua](../configs/EN16-Control.lua) and 
 
 The system element handles global functionality:
 
-- **Event 0 (init)**: Global setup, MIDI callback registration
-- **Event 4 (utility)**: Page change handler
-- **Event 5 (midirx)**: MIDI input routing
-- **Event 6 (timer)**: Periodic sync/heartbeat
+- **Root globals**: `MIDI_NOTE=144` etc. (become init event)
+- **Root callbacks**: `midirx_cb`, `sysex_cb` (included in init)
+- **utility**: Page change handler (top-level in config)
+- **timer**: Periodic sync/heartbeat (top-level in config)
 
 ## Script Limits
 

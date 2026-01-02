@@ -95,18 +95,19 @@ describe("loadLuaConfig", () => {
     it("extracts multiple elements", async () => {
       const lua = `
         local grid = require("grid")
+
+        CH = 0
+
         return grid.config {
           name = "Test",
           type = "EN16",
           version = {1, 0, 0},
+          utility = function(self) page_load(page_next()) end,
           [0] = {
             init = function(self) print("el0") end,
           },
           [1] = {
             init = function(self) print("el1") end,
-          },
-          [255] = {
-            init = function(self) print("sys") end,
           },
         }
       `;
@@ -118,6 +119,86 @@ describe("loadLuaConfig", () => {
       // Elements should be sorted with 255 last
       const elements = config.configs.map(c => c.controlElementNumber);
       expect(elements).toEqual([0, 1, 255]);
+
+      fs.unlinkSync(file);
+    });
+
+    it("extracts top-level system handlers as element 255", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          utility = function(self) page_load(page_next()) end,
+          timer = function(self) midi_send(0, 144, 64, 127) end,
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      expect(config.configs).toHaveLength(1);
+      expect(config.configs[0].controlElementNumber).toBe(255);
+      expect(config.configs[0].events).toHaveLength(2);
+
+      const eventIds = config.configs[0].events.map(e => e.event);
+      expect(eventIds).toContain(4);  // utility
+      expect(eventIds).toContain(6);  // timer
+
+      fs.unlinkSync(file);
+    });
+
+    it("creates init from root globals", async () => {
+      const lua = `
+        local grid = require("grid")
+
+        MIDI_NOTE = 144
+        CH = 0
+
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      expect(sys).toBeDefined();
+
+      const initEvent = sys!.events.find(e => e.event === 0);
+      expect(initEvent).toBeDefined();
+      expect(initEvent!.config).toContain("MIDI_NOTE=144");
+      expect(initEvent!.config).toContain("CH=0");
+
+      fs.unlinkSync(file);
+    });
+
+    it("extracts root-level callbacks", async () => {
+      const lua = `
+        local grid = require("grid")
+
+        function midirx_cb(self, event, header)
+          local cmd = event[2]
+        end
+
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      expect(sys).toBeDefined();
+
+      const initEvent = sys!.events.find(e => e.event === 0);
+      expect(initEvent).toBeDefined();
+      expect(initEvent!.config).toContain("midirx_cb=function");
+      expect(initEvent!.config).toContain("event[2]");
 
       fs.unlinkSync(file);
     });

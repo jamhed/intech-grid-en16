@@ -137,6 +137,347 @@ function inlineUpvalues(body: string, upvalues: Map<string, string>): string {
   return result;
 }
 
+// System event names that can appear at top level (not init - use root globals instead)
+const SYSTEM_EVENT_NAMES = ["utility", "timer"];
+
+// Grid API stubs for script execution
+const GRID_API_STUBS = `
+  -- LED functions
+  function glr() return 0 end  -- led_default_red
+  function glg() return 0 end  -- led_default_green
+  function glb() return 0 end  -- led_default_blue
+  function glp() end           -- led_value
+  function glt() end           -- led_timeout
+  function gln() end           -- led_color_min
+  function gld() end           -- led_color_mid
+  function glx() end           -- led_color_max
+  function glc() end           -- led_color
+  function glf() end           -- led_animation_rate
+  function gls() end           -- led_animation_type
+  function glpfs() end         -- led_animation_phase_rate_type
+  function glag() return 0 end -- led_address_get
+  led_default_red = glr
+  led_default_green = glg
+  led_default_blue = glb
+  led_value = glp
+  led_timeout = glt
+  led_color_min = gln
+  led_color_mid = gld
+  led_color_max = glx
+  led_color = glc
+  led_animation_rate = glf
+  led_animation_type = gls
+  led_animation_phase_rate_type = glpfs
+  led_address_get = glag
+
+  -- MIDI functions
+  function gms() end           -- midi_send
+  function gmss() end          -- midi_sysex_send
+  midi_send = gms
+  midi_sysex_send = gmss
+
+  -- HID functions
+  function gks() end           -- keyboard_send
+  function gmms() end          -- mouse_move_send
+  function gmbs() end          -- mouse_button_send
+  function ggms() end          -- gamepad_move_send
+  function ggbs() end          -- gamepad_button_send
+  keyboard_send = gks
+  mouse_move_send = gmms
+  mouse_button_send = gmbs
+  gamepad_move_send = ggms
+  gamepad_button_send = ggbs
+
+  -- Page functions
+  function gpn() return 0 end  -- page_next
+  function gpp() return 0 end  -- page_previous
+  function gpc() return 0 end  -- page_current
+  function gpl() end           -- page_load
+  page_next = gpn
+  page_previous = gpp
+  page_current = gpc
+  page_load = gpl
+
+  -- Timer functions
+  function gtt() end           -- timer_start
+  function gtp() end           -- timer_stop
+  function gts() return 0 end  -- timer_source
+  timer_start = gtt
+  timer_stop = gtp
+  timer_source = gts
+
+  -- Event functions
+  function get() end           -- event_trigger
+  event_trigger = get
+
+  -- MIDI RX control
+  function mre() end           -- midirx_enabled
+  function mrs() end           -- midirx_sync
+  midirx_enabled = mre
+  midirx_sync = mrs
+
+  -- Element name functions
+  function gen() return "" end -- element_name
+  function gsen() end          -- element_name_set
+  function gens() end          -- element_name_send
+  function ggen() return "" end -- element_name_get
+  element_name = gen
+  element_name_set = gsen
+  element_name_send = gens
+  element_name_get = ggen
+
+  -- Communication functions
+  function gwss() end          -- websocket_send
+  function gps() end           -- package_send
+  function gis() end           -- immediate_send
+  websocket_send = gwss
+  package_send = gps
+  immediate_send = gis
+
+  -- Module info functions
+  function gmx() return 0 end  -- module_position_x
+  function gmy() return 0 end  -- module_position_y
+  function gmr() return 0 end  -- module_rotation
+  function ghwcfg() return 0 end -- hardware_configuration
+  function gvmaj() return 0 end -- version_major
+  function gvmin() return 0 end -- version_minor
+  function gvpat() return 0 end -- version_patch
+  function gec() return 16 end -- element_count
+  module_position_x = gmx
+  module_position_y = gmy
+  module_rotation = gmr
+  hardware_configuration = ghwcfg
+  version_major = gvmaj
+  version_minor = gvmin
+  version_patch = gvpat
+  element_count = gec
+
+  -- Filesystem functions
+  function gfls() return {} end -- readdir
+  function gfcat() return "" end -- readfile
+  readdir = gfls
+  readfile = gfcat
+
+  -- Calibration functions
+  function gcr() end           -- calibration_reset
+  function gpcg() return 0,0,0 end -- potmeter_calibration_get
+  function gpcs() end          -- potmeter_center_set
+  function gpds() end          -- potmeter_detent_set
+  function grcg() return 0,0 end -- range_calibration_get
+  function grcs() end          -- range_calibration_set
+  calibration_reset = gcr
+  potmeter_calibration_get = gpcg
+  potmeter_center_set = gpcs
+  potmeter_detent_set = gpds
+  range_calibration_get = grcg
+  range_calibration_set = grcs
+
+  -- Utility functions
+  function grnd() return 0 end -- random8
+  function gmaps(v) return v end -- map_saturate
+  function glim(v) return v end -- limit
+  function sgn(v) return v >= 0 and 1 or -1 end -- sign
+  function gsc() return 0 end  -- segment_calculate
+  function gsg() return "" end -- string_get
+  random8 = grnd
+  map_saturate = gmaps
+  limit = glim
+  sign = sgn
+  segment_calculate = gsc
+  string_get = gsg
+
+  -- LCD/GUI functions
+  function glsb() end          -- lcd_set_backlight
+  function ggdsw() end         -- gui_draw_swap
+  function ggdpx() end         -- gui_draw_pixel
+  function ggdl() end          -- gui_draw_line
+  function ggdr() end          -- gui_draw_rectangle
+  function ggdrf() end         -- gui_draw_rectangle_filled
+  function ggdrr() end         -- gui_draw_rectangle_rounded
+  function ggdrrf() end        -- gui_draw_rectangle_rounded_filled
+  function ggdpo() end         -- gui_draw_polygon
+  function ggdpof() end        -- gui_draw_polygon_filled
+  function ggdt() end          -- gui_draw_text
+  function ggdft() end         -- gui_draw_fasttext
+  function ggdaf() end         -- gui_draw_area_filled
+  function ggdd() end          -- gui_draw_demo
+  lcd_set_backlight = glsb
+  gui_draw_swap = ggdsw
+  gui_draw_pixel = ggdpx
+  gui_draw_line = ggdl
+  gui_draw_rectangle = ggdr
+  gui_draw_rectangle_filled = ggdrf
+  gui_draw_rectangle_rounded = ggdrr
+  gui_draw_rectangle_rounded_filled = ggdrrf
+  gui_draw_polygon = ggdpo
+  gui_draw_polygon_filled = ggdpof
+  gui_draw_text = ggdt
+  gui_draw_fasttext = ggdft
+  gui_draw_area_filled = ggdaf
+  gui_draw_demo = ggdd
+
+  -- Suppress print
+  function print() end
+`;
+
+// Built-in globals to ignore when detecting new ones
+const BUILTIN_GLOBALS = new Set([
+  // Lua built-ins
+  "_G", "_VERSION", "assert", "collectgarbage", "dofile", "error", "getmetatable",
+  "ipairs", "load", "loadfile", "next", "pairs", "pcall", "print", "rawequal",
+  "rawget", "rawlen", "rawset", "require", "select", "setmetatable", "tonumber",
+  "tostring", "type", "warn", "xpcall", "coroutine", "debug", "io", "math",
+  "os", "package", "string", "table", "utf8", "js",
+  // Our injected globals
+  "grid", "__grid_config", "__get_func_info", "element",
+  // LED functions
+  "glr", "glg", "glb", "glp", "glt", "gln", "gld", "glx", "glc", "glf", "gls", "glpfs", "glag",
+  "led_default_red", "led_default_green", "led_default_blue", "led_value", "led_timeout",
+  "led_color_min", "led_color_mid", "led_color_max", "led_color", "led_animation_rate",
+  "led_animation_type", "led_animation_phase_rate_type", "led_address_get",
+  // MIDI functions
+  "gms", "gmss", "midi_send", "midi_sysex_send",
+  // HID functions
+  "gks", "gmms", "gmbs", "ggms", "ggbs",
+  "keyboard_send", "mouse_move_send", "mouse_button_send", "gamepad_move_send", "gamepad_button_send",
+  // Page functions
+  "gpn", "gpp", "gpc", "gpl", "page_next", "page_previous", "page_current", "page_load",
+  // Timer functions
+  "gtt", "gtp", "gts", "timer_start", "timer_stop", "timer_source",
+  // Event functions
+  "get", "event_trigger",
+  // MIDI RX control
+  "mre", "mrs", "midirx_enabled", "midirx_sync",
+  // Element name functions
+  "gen", "gsen", "gens", "ggen", "element_name", "element_name_set", "element_name_send", "element_name_get",
+  // Communication functions
+  "gwss", "gps", "gis", "websocket_send", "package_send", "immediate_send",
+  // Module info functions
+  "gmx", "gmy", "gmr", "ghwcfg", "gvmaj", "gvmin", "gvpat", "gec",
+  "module_position_x", "module_position_y", "module_rotation", "hardware_configuration",
+  "version_major", "version_minor", "version_patch", "element_count",
+  // Filesystem functions
+  "gfls", "gfcat", "readdir", "readfile",
+  // Calibration functions
+  "gcr", "gpcg", "gpcs", "gpds", "grcg", "grcs",
+  "calibration_reset", "potmeter_calibration_get", "potmeter_center_set",
+  "potmeter_detent_set", "range_calibration_get", "range_calibration_set",
+  // Utility functions
+  "grnd", "gmaps", "glim", "sgn", "gsc", "gsg",
+  "random8", "map_saturate", "limit", "sign", "segment_calculate", "string_get",
+  // LCD/GUI functions
+  "glsb", "ggdsw", "ggdpx", "ggdl", "ggdr", "ggdrf", "ggdrr", "ggdrrf", "ggdpo", "ggdpof", "ggdt", "ggdft", "ggdaf", "ggdd",
+  "lcd_set_backlight", "gui_draw_swap", "gui_draw_pixel", "gui_draw_line", "gui_draw_rectangle",
+  "gui_draw_rectangle_filled", "gui_draw_rectangle_rounded", "gui_draw_rectangle_rounded_filled",
+  "gui_draw_polygon", "gui_draw_polygon_filled", "gui_draw_text", "gui_draw_fasttext",
+  "gui_draw_area_filled", "gui_draw_demo",
+]);
+
+// Allowed callback names that can be defined at root level
+const ALLOWED_CALLBACKS = new Set(["midirx_cb", "sysex_cb"]);
+
+/**
+ * Check if a global name should be extracted.
+ */
+function isUserGlobal(name: string): boolean {
+  if (BUILTIN_GLOBALS.has(name)) return false;
+  // Uppercase constants (e.g., MIDI_NOTE, CH)
+  if (/^[A-Z_][A-Z0-9_]*$/.test(name)) return true;
+  // Allowed callbacks (e.g., midirx_cb)
+  if (ALLOWED_CALLBACKS.has(name)) return true;
+  return false;
+}
+
+/**
+ * Extract new globals defined in the script by comparing before/after execution.
+ */
+function extractNewGlobals(L: any, source: string): Map<string, string> {
+  const newGlobals = new Map<string, string>();
+
+  // Iterate over _G to find new globals
+  lua.lua_getglobal(L, fengari.to_luastring("_G"));
+  lua.lua_pushnil(L);
+
+  while (lua.lua_next(L, -2) !== 0) {
+    if (lua.lua_isstring(L, -2)) {
+      const name = lua.lua_tojsstring(L, -2);
+
+      if (isUserGlobal(name)) {
+        // Handle functions - extract body from source
+        if (lua.lua_isfunction(L, -1)) {
+          const body = extractFunction(L, source, -1);
+          if (body) {
+            newGlobals.set(name, `function(self,event,header) ${body} end`);
+          }
+        } else {
+          // Handle values - serialize directly
+          const serialized = serializeLuaValue(L, -1);
+          if (serialized !== null) {
+            newGlobals.set(name, serialized);
+          }
+        }
+      }
+    }
+    lua.lua_pop(L, 1);
+  }
+  lua.lua_pop(L, 1); // Pop _G
+
+  return newGlobals;
+}
+
+/**
+ * Convert new globals map to Lua assignment string.
+ */
+function globalsToLua(globals: Map<string, string>): string {
+  if (globals.size === 0) return "";
+
+  const assignments: string[] = [];
+  for (const [name, value] of globals) {
+    assignments.push(`${name}=${value}`);
+  }
+  return assignments.join(" ");
+}
+
+/**
+ * Extract a function's body with upvalue inlining.
+ */
+function extractFunction(
+  L: any,
+  source: string,
+  fnStackIndex: number
+): string | null {
+  // Convert to absolute index before any stack modifications
+  const absIdx = fnStackIndex < 0 ? lua.lua_gettop(L) + fnStackIndex + 1 : fnStackIndex;
+
+  const upvalues = getUpvalues(L, absIdx);
+
+  lua.lua_getglobal(L, fengari.to_luastring("__get_func_info"));
+  lua.lua_pushvalue(L, absIdx);
+  lua.lua_call(L, 1, 1);
+
+  if (!lua.lua_istable(L, -1)) {
+    lua.lua_pop(L, 1);
+    return null;
+  }
+
+  lua.lua_getfield(L, -1, fengari.to_luastring("linedefined"));
+  const startLine = lua.lua_tointeger(L, -1);
+  lua.lua_pop(L, 1);
+
+  lua.lua_getfield(L, -1, fengari.to_luastring("lastlinedefined"));
+  const endLine = lua.lua_tointeger(L, -1);
+  lua.lua_pop(L, 1);
+  lua.lua_pop(L, 1); // Pop info table
+
+  if (startLine <= 0 || endLine <= 0) {
+    return null;
+  }
+
+  let body = extractFunctionBody(source, startLine, endLine);
+  body = inlineUpvalues(body, upvalues);
+  return body || null;
+}
+
 /**
  * Load and parse a Lua configuration file using fengari.
  */
@@ -148,8 +489,13 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
   interop.luaopen_js(L);
 
   try {
-    // Set up the grid module and execute config
+    // Set up the grid module, API stubs, and execute config
     const setupCode = `
+      ${GRID_API_STUBS}
+
+      -- Stub element array
+      element = setmetatable({}, { __index = function() return {} end })
+
       -- Grid module
       local grid = {
         config = function(tbl)
@@ -227,12 +573,55 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
       configs: [],
     };
 
-    // Iterate over numeric keys (element indices)
+    // Extract system element (255) from top-level handlers
+    const systemEvents: EventConfig[] = [];
+
+    // Extract new globals defined at script root (becomes system init)
+    const newGlobals = extractNewGlobals(L, source);
+    const rootGlobals = globalsToLua(newGlobals);
+
+    // Create system init from root globals
+    if (rootGlobals) {
+      systemEvents.push({ event: 0, config: rootGlobals });
+    }
+
+    // Extract top-level system event handlers (utility, timer)
+    for (const eventName of SYSTEM_EVENT_NAMES) {
+      lua.lua_getfield(L, -1, fengari.to_luastring(eventName));
+      if (lua.lua_isfunction(L, -1)) {
+        const eventId = EVENT_IDS[eventName];
+        if (eventId !== undefined) {
+          const body = extractFunction(L, source, -1);
+          if (body) {
+            systemEvents.push({ event: eventId, config: body });
+          }
+        }
+      }
+      lua.lua_pop(L, 1);
+    }
+
+    // Add system element if we have any system events
+    if (systemEvents.length > 0) {
+      systemEvents.sort((a, b) => (a.event as number) - (b.event as number));
+      config.configs.push({
+        controlElementNumber: 255,
+        events: systemEvents,
+      });
+    }
+
+    // Iterate over numeric keys (regular elements)
     lua.lua_pushnil(L);
     while (lua.lua_next(L, -2) !== 0) {
       // Key is at -2, value is at -1
       if (lua.lua_isnumber(L, -2) && lua.lua_istable(L, -1)) {
         const elementNum = lua.lua_tointeger(L, -2);
+
+        // Skip if this is element 255 (handled above via top-level)
+        if (elementNum === 255) {
+          lua.lua_pop(L, 1);
+          continue;
+        }
+
         const events: EventConfig[] = [];
 
         // Iterate over event handlers in this element
@@ -243,32 +632,10 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
             const eventId = EVENT_IDS[eventName];
 
             if (eventId !== undefined) {
-              // Get upvalues for this function
-              const upvalues = getUpvalues(L, -1);
-
-              // Get function line info
-              lua.lua_getglobal(L, fengari.to_luastring("__get_func_info"));
-              lua.lua_pushvalue(L, -2); // Push the function
-              lua.lua_call(L, 1, 1);
-
-              if (lua.lua_istable(L, -1)) {
-                lua.lua_getfield(L, -1, fengari.to_luastring("linedefined"));
-                const startLine = lua.lua_tointeger(L, -1);
-                lua.lua_pop(L, 1);
-
-                lua.lua_getfield(L, -1, fengari.to_luastring("lastlinedefined"));
-                const endLine = lua.lua_tointeger(L, -1);
-                lua.lua_pop(L, 1);
-
-                if (startLine > 0 && endLine > 0) {
-                  let body = extractFunctionBody(source, startLine, endLine);
-                  body = inlineUpvalues(body, upvalues);
-                  if (body) {
-                    events.push({ event: eventId, config: body });
-                  }
-                }
+              const body = extractFunction(L, source, -1);
+              if (body) {
+                events.push({ event: eventId, config: body });
               }
-              lua.lua_pop(L, 1); // Pop info table
             }
           }
           lua.lua_pop(L, 1); // Pop value, keep key

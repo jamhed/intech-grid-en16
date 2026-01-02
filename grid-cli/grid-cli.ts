@@ -583,6 +583,45 @@ program
   });
 
 program
+  .command("convert")
+  .description("Convert Lua config to JSON")
+  .argument("<input>", "Path to Lua config file")
+  .option("-o, --output <path>", "Output file path (prints to stdout if not specified)")
+  .action(async (inputPath: string, options) => {
+    const fullPath = path.resolve(inputPath);
+
+    if (!fs.existsSync(fullPath)) {
+      console.error(`Config file not found: ${fullPath}`);
+      process.exit(1);
+    }
+
+    const ext = path.extname(fullPath).toLowerCase();
+    if (ext !== ".lua") {
+      console.error(`Expected .lua file, got: ${ext}`);
+      process.exit(1);
+    }
+
+    let config: ConfigFile;
+    try {
+      config = await loadLuaConfig(fullPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to parse Lua config: ${msg}`);
+      process.exit(1);
+    }
+
+    const json = JSON.stringify(config, null, 2);
+
+    if (options.output) {
+      const outputPath = path.resolve(options.output);
+      fs.writeFileSync(outputPath, json);
+      console.error(`Converted: ${path.basename(inputPath)} -> ${path.basename(outputPath)}`);
+    } else {
+      console.log(json);
+    }
+  });
+
+program
   .command("download")
   .description("Download configuration from Grid device")
   .argument("<output>", "Output JSON file path")
