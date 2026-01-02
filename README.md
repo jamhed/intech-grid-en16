@@ -1,5 +1,7 @@
 # Intech EN16 Ableton Control Surface
 
+![Intech EN16](https://data-crux.intech.studio/view-1-ratio43-en16__preview.png)
+
 Control Ableton Live with the Intech EN16 grid controller.
 
 ## Features
