@@ -549,4 +549,339 @@ describe("loadLuaConfig", () => {
       fs.unlinkSync(file);
     });
   });
+
+  describe("AST-based extraction", () => {
+    it("extracts named function declarations", async () => {
+      const lua = `
+        local grid = require("grid")
+
+        function midirx_cb(self, event, header)
+          local cmd = event[2]
+          local val = event[4]
+        end
+
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const initEvent = sys!.events.find(e => e.event === 0);
+
+      // Body should contain the statements, not the function declaration
+      expect(initEvent!.config).toContain("event[2]");
+      expect(initEvent!.config).toContain("event[4]");
+      expect(initEvent!.config).not.toContain("function midirx_cb");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles nested if/elseif/else/end correctly", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            button = function(self)
+              local val = self:button_value()
+              if val > 100 then
+                print("high")
+              elseif val > 50 then
+                print("mid")
+              else
+                print("low")
+              end
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("if val > 100 then");
+      expect(body).toContain("elseif val > 50 then");
+      expect(body).toContain("else");
+      // Should not include trailing "end," from the function
+      expect(body).not.toMatch(/end\s*,\s*$/);
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles nested for loops", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            init = function(self)
+              for i = 1, 10 do
+                print(i)
+              end
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("for i = 1, 10 do");
+      expect(body).toContain("print(i)");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles while loops", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            init = function(self)
+              local x = 0
+              while x < 10 do
+                x = x + 1
+              end
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("while x < 10 do");
+      expect(body).toContain("x = x + 1");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles multiple nested control structures", async () => {
+      const lua = `
+        local grid = require("grid")
+
+        function midirx_cb(self, event, header)
+          if header[1] ~= 13 then return end
+          local cmd, el, val = event[2], event[3] - 32, event[4]
+          local on = val == 127
+          local elm = element[el >= 16 and el - 16 or el]
+          if cmd == 144 and el >= 16 then
+            elm:led_color(1, {on and {255, 0, 0, 1} or {0, 0, 255, 1}})
+          elseif cmd == 144 then
+            elm:led_value(1, on and 100 or 0)
+          elseif cmd == 176 and el < 16 then
+            elm:encoder_value(val)
+          end
+        end
+
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const initEvent = sys!.events.find(e => e.event === 0);
+
+      expect(initEvent!.config).toContain("header[1] ~= 13");
+      expect(initEvent!.config).toContain("cmd == 144 and el >= 16");
+      expect(initEvent!.config).toContain("led_color");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles functions with local function definitions", async () => {
+      const lua = `
+        local grid = require("grid")
+
+        local function helper(x)
+          return x * 2
+        end
+
+        local function encoder(color)
+          return {
+            init = function(self)
+              self:led_color(1, {color})
+            end,
+            encoder = function(self)
+              local val = helper(self:encoder_value())
+              midi_send(0, 176, 32, val)
+            end,
+          }
+        end
+
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = encoder({255, 0, 0, 1}),
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const el0 = config.configs.find(c => c.controlElementNumber === 0);
+      expect(el0).toBeDefined();
+      expect(el0!.events.length).toBe(2);
+
+      // Check init has color inlined
+      const initEvent = el0!.events.find(e => e.event === 0);
+      expect(initEvent!.config).toContain("{255,0,0,1}");
+
+      // Check encoder event exists
+      const encoderEvent = el0!.events.find(e => e.event === 2);
+      expect(encoderEvent!.config).toContain("midi_send");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles empty function bodies gracefully", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          utility = function(self) end,
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      // Empty function should not create an event or should have empty config
+      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      if (sys) {
+        const utilityEvent = sys.events.find(e => e.event === 4);
+        // Either no event or empty config is acceptable
+        if (utilityEvent) {
+          expect(utilityEvent.config).toBe("");
+        }
+      }
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles functions with string literals containing 'end'", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            init = function(self)
+              local msg = "the end is near"
+              print(msg)
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain('"the end is near"');
+      expect(body).toContain("print(msg)");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles deeply nested structures", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            button = function(self)
+              if self:button_state() == 1 then
+                for i = 1, 3 do
+                  if i == 2 then
+                    while true do
+                      break
+                    end
+                  end
+                end
+              end
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("if self:button_state() == 1 then");
+      expect(body).toContain("for i = 1, 3 do");
+      expect(body).toContain("while true do");
+      expect(body).toContain("break");
+
+      fs.unlinkSync(file);
+    });
+
+    it("preserves function call chains", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            init = function(self)
+              self:led_color(1, {{0, 0, 255, 1}}):led_value(1, 100)
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("led_color(1, {{0, 0, 255, 1}}):led_value(1, 100)");
+
+      fs.unlinkSync(file);
+    });
+
+    it("handles repeat-until loops", async () => {
+      const lua = `
+        local grid = require("grid")
+        return grid.config {
+          name = "Test",
+          type = "EN16",
+          version = {1, 0, 0},
+          [0] = {
+            init = function(self)
+              local x = 0
+              repeat
+                x = x + 1
+              until x >= 10
+            end,
+          },
+        }
+      `;
+      const file = createTempLuaFile(lua);
+      const config = await loadLuaConfig(file);
+
+      const body = config.configs[0].events[0].config;
+      expect(body).toContain("repeat");
+      expect(body).toContain("until x >= 10");
+
+      fs.unlinkSync(file);
+    });
+  });
 });
