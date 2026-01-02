@@ -433,6 +433,288 @@ const BUILTIN_GLOBALS = new Set([
 // Allowed callback names that can be defined at root level
 const ALLOWED_CALLBACKS = new Set(["midirx_cb", "sysex_cb"]);
 
+// =============================================================================
+// Identifier renaming for minification
+// =============================================================================
+
+// Lua keywords that cannot be used as identifiers
+const LUA_KEYWORDS = new Set([
+  "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+  "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then",
+  "true", "until", "while",
+]);
+
+// Reserved identifiers that should not be renamed
+const RESERVED_IDENTIFIERS = new Set([
+  "self", "event", "header", // Grid callback parameters
+  "_ENV", "_G", // Lua environment
+]);
+
+/**
+ * Generate short identifier names: a, b, ..., z, aa, ab, ..., az, ba, ...
+ */
+class NameGenerator {
+  private index = 0;
+  private used = new Set<string>();
+
+  constructor(reserved: Iterable<string> = []) {
+    for (const name of reserved) {
+      this.used.add(name);
+    }
+  }
+
+  next(): string {
+    while (true) {
+      const name = this.indexToName(this.index++);
+      if (!this.used.has(name) && !LUA_KEYWORDS.has(name)) {
+        this.used.add(name);
+        return name;
+      }
+    }
+  }
+
+  private indexToName(i: number): string {
+    let name = "";
+    do {
+      name = String.fromCharCode(97 + (i % 26)) + name;
+      i = Math.floor(i / 26) - 1;
+    } while (i >= 0);
+    return name;
+  }
+}
+
+interface IdentifierInfo {
+  name: string;
+  range: [number, number];
+  isLocal: boolean;
+  isDeclaration: boolean;
+  scope: number;
+}
+
+/**
+ * Collect all identifiers from Lua source with scope information.
+ * Two-pass approach: first collect, then analyze scope.
+ */
+function collectIdentifiers(source: string): IdentifierInfo[] {
+  // First pass: collect all identifiers and declarations
+  const allIdentifiers: Array<{ name: string; range: [number, number]; scopeAtCreation: number }> = [];
+  const declarations: Array<{ name: string; range: [number, number]; scope: number }> = [];
+  let scopeDepth = 0;
+
+  try {
+    luaparse.parse(source, {
+      locations: true,
+      ranges: true,
+      scope: true,
+      onCreateScope: () => {
+        scopeDepth++;
+      },
+      onDestroyScope: () => {
+        scopeDepth--;
+      },
+      onLocalDeclaration: (name: string) => {
+        // Mark this name as declared at current scope
+        // We'll match it to identifier nodes by name and scope
+        declarations.push({ name, range: [0, 0], scope: scopeDepth });
+      },
+      onCreateNode: (node: any) => {
+        if (node.type === "Identifier" && node.range) {
+          allIdentifiers.push({
+            name: node.name,
+            range: node.range,
+            scopeAtCreation: scopeDepth,
+          });
+        }
+      },
+    });
+  } catch {
+    return [];
+  }
+
+  // Build declaration map: name -> [scopes where declared]
+  const declaredAt = new Map<string, number[]>();
+  for (const d of declarations) {
+    const scopes = declaredAt.get(d.name) || [];
+    scopes.push(d.scope);
+    declaredAt.set(d.name, scopes);
+  }
+
+  // Second pass: determine which identifiers are local
+  const identifiers: IdentifierInfo[] = [];
+  const seenRanges = new Set<string>();
+  const declCounts = new Map<string, number>(); // Track how many declarations we've seen per name
+
+  for (const id of allIdentifiers) {
+    const key = `${id.range[0]},${id.range[1]}`;
+    if (seenRanges.has(key)) continue;
+    seenRanges.add(key);
+
+    const declScopes = declaredAt.get(id.name) || [];
+
+    // Check if this is a declaration (first occurrence at a declaration scope)
+    const declCount = declCounts.get(id.name) || 0;
+    const isDeclaration = declCount < declScopes.length && declScopes[declCount] === id.scopeAtCreation;
+    if (isDeclaration) {
+      declCounts.set(id.name, declCount + 1);
+    }
+
+    // Check if name is local at this point (any declaration at or above current scope)
+    const isLocal = declScopes.some((ds) => ds <= id.scopeAtCreation);
+
+    identifiers.push({
+      name: id.name,
+      range: id.range,
+      isLocal,
+      isDeclaration,
+      scope: id.scopeAtCreation,
+    });
+  }
+
+  return identifiers;
+}
+
+/**
+ * Check if an identifier should be renamed.
+ */
+function shouldRename(name: string): boolean {
+  if (LUA_KEYWORDS.has(name)) return false;
+  if (RESERVED_IDENTIFIERS.has(name)) return false;
+  if (BUILTIN_GLOBALS.has(name)) return false;
+  return true;
+}
+
+/**
+ * Check if an identifier would benefit from renaming (is longer than minimal).
+ * Single-letter identifiers are already minimal and should be kept as-is.
+ */
+function needsRenaming(name: string): boolean {
+  return name.length > 1;
+}
+
+/**
+ * Apply renames to source, replacing from end to preserve positions.
+ */
+function applyRenames(source: string, identifiers: IdentifierInfo[], renames: Map<string, string>): string {
+  // Sort by position descending to replace from end
+  const sorted = [...identifiers].sort((a, b) => b.range[0] - a.range[0]);
+
+  let result = source;
+  for (const id of sorted) {
+    const newName = renames.get(id.name);
+    if (newName && newName !== id.name) {
+      result = result.slice(0, id.range[0]) + newName + result.slice(id.range[1]);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Rename identifiers in a single script.
+ * @param source - Lua source code
+ * @param globalRenames - Pre-defined renames for globals (consistent across scripts)
+ * @returns Renamed source
+ */
+function renameScript(source: string, globalRenames: Map<string, string>): string {
+  const identifiers = collectIdentifiers(source);
+  if (identifiers.length === 0) return source;
+
+  // Collect names that will be KEPT (not renamed) to avoid collisions
+  const keptNames = new Set<string>();
+  for (const id of identifiers) {
+    // Keep single-letter names and names that shouldn't be renamed
+    if (!shouldRename(id.name) || !needsRenaming(id.name)) {
+      keptNames.add(id.name);
+    }
+  }
+
+  // Build local renames (per-script)
+  // Reserve: global rename targets, reserved identifiers, and kept names
+  const localRenames = new Map<string, string>();
+  const nameGen = new NameGenerator([
+    ...globalRenames.values(),
+    ...RESERVED_IDENTIFIERS,
+    ...keptNames,
+  ]);
+
+  // Find local declarations that need renaming
+  for (const id of identifiers) {
+    if (id.isLocal && id.isDeclaration && shouldRename(id.name) && needsRenaming(id.name) && !localRenames.has(id.name)) {
+      localRenames.set(id.name, nameGen.next());
+    }
+  }
+
+  // Combine renames: locals override globals
+  const allRenames = new Map([...globalRenames, ...localRenames]);
+
+  // Filter identifiers to only those that should be renamed
+  const toRename = identifiers.filter(id => {
+    if (!shouldRename(id.name)) return false;
+    if (!needsRenaming(id.name)) return false;
+    if (id.isLocal) return localRenames.has(id.name);
+    return globalRenames.has(id.name);
+  });
+
+  return applyRenames(source, toRename, allRenames);
+}
+
+/**
+ * Collect all user-defined globals that need renaming from multiple scripts.
+ */
+function collectGlobals(scripts: string[]): Set<string> {
+  const globals = new Set<string>();
+
+  for (const source of scripts) {
+    const identifiers = collectIdentifiers(source);
+    for (const id of identifiers) {
+      if (!id.isLocal && shouldRename(id.name) && needsRenaming(id.name)) {
+        globals.add(id.name);
+      }
+    }
+  }
+
+  return globals;
+}
+
+/**
+ * Collect all identifier names that will be kept (not renamed) across all scripts.
+ */
+function collectKeptNames(scripts: string[]): Set<string> {
+  const kept = new Set<string>();
+
+  for (const source of scripts) {
+    const identifiers = collectIdentifiers(source);
+    for (const id of identifiers) {
+      if (!shouldRename(id.name) || !needsRenaming(id.name)) {
+        kept.add(id.name);
+      }
+    }
+  }
+
+  return kept;
+}
+
+/**
+ * Rename identifiers across multiple scripts with consistent global naming.
+ * @param scripts - Array of Lua source strings
+ * @returns Array of renamed sources
+ */
+export function renameIdentifiers(scripts: string[]): string[] {
+  // First pass: collect globals that need renaming and names that are kept
+  const globals = collectGlobals(scripts);
+  const keptNames = collectKeptNames(scripts);
+
+  // Create consistent global renames, avoiding kept names
+  const globalRenames = new Map<string, string>();
+  const nameGen = new NameGenerator([...RESERVED_IDENTIFIERS, ...keptNames]);
+  for (const name of globals) {
+    globalRenames.set(name, nameGen.next());
+  }
+
+  // Second pass: rename each script
+  return scripts.map(source => renameScript(source, globalRenames));
+}
+
 /**
  * Check if a global name should be extracted.
  */

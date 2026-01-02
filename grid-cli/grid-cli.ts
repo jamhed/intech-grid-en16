@@ -3,7 +3,7 @@ import { SerialPort } from "serialport";
 import { program } from "commander";
 import * as fs from "fs";
 import * as path from "path";
-import { loadLuaConfig } from "./lua-loader.js";
+import { loadLuaConfig, renameIdentifiers } from "./lua-loader.js";
 
 // Dynamically import grid-protocol to work around ESM issues
 const gridProtocol = await import("@intechstudio/grid-protocol");
@@ -588,6 +588,7 @@ program
   .argument("<input>", "Path to Lua config file")
   .option("-o, --output <path>", "Output file path (prints to stdout if not specified)")
   .option("--no-minify", "Skip minification (keep human-readable function names)")
+  .option("-r, --rename", "Rename user variables/functions to short names")
   .action(async (inputPath: string, options) => {
     const fullPath = path.resolve(inputPath);
 
@@ -609,6 +610,38 @@ program
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to parse Lua config: ${msg}`);
       process.exit(1);
+    }
+
+    // Apply identifier renaming (before minification)
+    if (options.rename) {
+      // Collect all scripts
+      const scripts: string[] = [];
+      const scriptMap: Array<{ element: number; event: number; index: number }> = [];
+
+      for (const element of config.configs) {
+        for (const event of element.events) {
+          if (event.config) {
+            scriptMap.push({
+              element: element.controlElementNumber,
+              event: event.event,
+              index: scripts.length,
+            });
+            scripts.push(event.config);
+          }
+        }
+      }
+
+      // Rename with consistent globals
+      const renamed = renameIdentifiers(scripts);
+
+      // Apply back
+      for (const { element, event, index } of scriptMap) {
+        const el = config.configs.find((e) => e.controlElementNumber === element);
+        const ev = el?.events.find((e) => e.event === event);
+        if (ev) {
+          ev.config = renamed[index];
+        }
+      }
     }
 
     // Apply minification by default

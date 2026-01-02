@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadLuaConfig } from "./lua-loader.js";
+import { loadLuaConfig, renameIdentifiers } from "./lua-loader.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -882,6 +882,427 @@ describe("loadLuaConfig", () => {
       expect(body).toContain("until x >= 10");
 
       fs.unlinkSync(file);
+    });
+  });
+});
+
+describe("renameIdentifiers", () => {
+  describe("local variable renaming", () => {
+    it("renames local variables to short names", () => {
+      const scripts = ["local myVariable = 10\nprint(myVariable)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("myVariable");
+      expect(result[0]).toMatch(/local \w+ = 10/);
+    });
+
+    it("renames multiple locals in same script", () => {
+      const scripts = ["local foo = 1\nlocal bar = 2\nprint(foo + bar)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("foo");
+      expect(result[0]).not.toContain("bar");
+      // Should have two different short names
+      expect(result[0]).toMatch(/local (\w+) = 1\nlocal (\w+) = 2/);
+    });
+
+    it("consistently renames variable across usages", () => {
+      const scripts = ["local count = 0\ncount = count + 1\nprint(count)"];
+      const result = renameIdentifiers(scripts);
+
+      // Extract the renamed variable
+      const match = result[0].match(/local (\w+) = 0/);
+      expect(match).toBeTruthy();
+      const renamed = match![1];
+
+      // Same name should be used in all places
+      expect(result[0]).toContain(`${renamed} = ${renamed} + 1`);
+      expect(result[0]).toContain(`print(${renamed})`);
+    });
+  });
+
+  describe("global variable renaming", () => {
+    it("renames user-defined globals", () => {
+      const scripts = ["MY_CONSTANT = 42\nprint(MY_CONSTANT)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("MY_CONSTANT");
+      expect(result[0]).toMatch(/\w+ = 42/);
+    });
+
+    it("uses consistent names for globals across scripts", () => {
+      const scripts = [
+        "SHARED = 1",
+        "print(SHARED)",
+        "SHARED = SHARED + 1",
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // Find what SHARED was renamed to in first script
+      const match = result[0].match(/^(\w+) = 1$/);
+      expect(match).toBeTruthy();
+      const renamed = match![1];
+
+      // Same name should be used in all scripts
+      expect(result[1]).toBe(`print(${renamed})`);
+      expect(result[2]).toBe(`${renamed} = ${renamed} + 1`);
+    });
+
+    it("assigns different names to different globals", () => {
+      const scripts = ["FOO = 1\nBAR = 2"];
+      const result = renameIdentifiers(scripts);
+
+      // Should have two different short names
+      const match = result[0].match(/(\w+) = 1\n(\w+) = 2/);
+      expect(match).toBeTruthy();
+      expect(match![1]).not.toBe(match![2]);
+    });
+  });
+
+  describe("reserved identifiers", () => {
+    it("does not rename 'self'", () => {
+      const scripts = ["self:led_color(1, {{0, 0, 255, 1}})"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toContain("self:");
+    });
+
+    it("does not rename 'event'", () => {
+      const scripts = ["local cmd = event[2]"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toContain("event[2]");
+    });
+
+    it("does not rename 'header'", () => {
+      const scripts = ["if header[1] == 13 then end"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toContain("header[1]");
+    });
+  });
+
+  describe("builtin globals", () => {
+    it("does not rename midi_send", () => {
+      const scripts = ["midi_send(0, 144, 60, 127)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("midi_send(0, 144, 60, 127)");
+    });
+
+    it("does not rename led_color", () => {
+      const scripts = ["led_color(1, {{255, 0, 0, 1}})"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("led_color(1, {{255, 0, 0, 1}})");
+    });
+
+    it("does not rename element", () => {
+      const scripts = ["element[0]:led_value(1, 100)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toContain("element[0]");
+    });
+
+    it("does not rename page_current", () => {
+      const scripts = ["local ch = page_current()"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toContain("page_current()");
+    });
+
+    it("does not rename print", () => {
+      const scripts = ["print('hello')"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("print('hello')");
+    });
+  });
+
+  describe("Lua keywords", () => {
+    it("does not use keywords as renamed identifiers", () => {
+      // Create enough variables to potentially hit keywords
+      const vars = Array.from({ length: 30 }, (_, i) => `var${i}`);
+      const script = vars.map((v) => `local ${v} = ${vars.indexOf(v)}`).join("\n");
+      const result = renameIdentifiers([script]);
+
+      // Keywords that could conflict with a-z naming
+      const keywords = ["do", "if", "in", "or", "and", "end", "for", "nil", "not"];
+      for (const kw of keywords) {
+        // Should not have a keyword used as variable name
+        expect(result[0]).not.toMatch(new RegExp(`local ${kw} =`));
+      }
+    });
+  });
+
+  describe("function renaming", () => {
+    it("renames user-defined functions", () => {
+      const scripts = ["function myFunc() return 1 end\nmyFunc()"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("myFunc");
+      expect(result[0]).toMatch(/function \w+\(\)/);
+    });
+
+    it("renames local functions", () => {
+      const scripts = ["local function helper(x) return x * 2 end\nhelper(5)"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("helper");
+    });
+
+    it("renames function parameters", () => {
+      const scripts = ["local function add(first, second) return first + second end"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("first");
+      expect(result[0]).not.toContain("second");
+    });
+  });
+
+  describe("mixed scopes", () => {
+    it("handles local shadowing global", () => {
+      const scripts = [
+        "GLOBAL = 1",
+        "local GLOBAL = 2\nprint(GLOBAL)",
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // Global should be renamed consistently in first script
+      const globalMatch = result[0].match(/^(\w+) = 1$/);
+      expect(globalMatch).toBeTruthy();
+      const globalName = globalMatch![1];
+
+      // Local in second script should get different name
+      // (or same if shadowing is handled by treating as new local)
+      expect(result[1]).not.toContain("GLOBAL");
+    });
+
+    it("handles nested scopes correctly", () => {
+      const scripts = [
+        `local outer = 1
+do
+  local inner = 2
+  print(outer, inner)
+end
+print(outer)`,
+      ];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).not.toContain("outer");
+      expect(result[0]).not.toContain("inner");
+    });
+  });
+
+  describe("collision avoidance", () => {
+    it("does not clash with existing short variable names", () => {
+      const scripts = ["local a = 1\nlocal myLongVar = 2\nprint(a + myLongVar)"];
+      const result = renameIdentifiers(scripts);
+
+      // 'a' should stay as 'a' (not renamed to something else)
+      // 'myLongVar' should be renamed to 'b' (not 'a', which would clash)
+      expect(result[0]).toContain("local a = 1");
+      expect(result[0]).not.toContain("myLongVar");
+
+      // Count occurrences of 'a' - should only appear where original 'a' was
+      const aMatches = result[0].match(/\ba\b/g);
+      expect(aMatches?.length).toBe(2); // declaration and usage in print
+    });
+
+    it("does not clash with existing globals", () => {
+      const scripts = [
+        "a = 1\nMY_GLOBAL = 2",
+        "print(a + MY_GLOBAL)",
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // 'a' should stay as 'a'
+      expect(result[0]).toContain("a = 1");
+      // MY_GLOBAL should be renamed to 'b' (not 'a')
+      expect(result[0]).not.toContain("MY_GLOBAL");
+
+      // Both scripts should use consistent naming
+      const globalMatch = result[0].match(/a = 1\n(\w+) = 2/);
+      expect(globalMatch).toBeTruthy();
+      const renamedGlobal = globalMatch![1];
+      expect(renamedGlobal).not.toBe("a");
+      expect(result[1]).toContain(`a + ${renamedGlobal}`);
+    });
+
+    it("handles multiple short names already in use", () => {
+      const scripts = ["local a, b, c = 1, 2, 3\nlocal longName = 4\nprint(a + b + c + longName)"];
+      const result = renameIdentifiers(scripts);
+
+      // a, b, c should remain
+      expect(result[0]).toContain("local a, b, c = 1, 2, 3");
+      // longName should become 'd' (first available)
+      expect(result[0]).not.toContain("longName");
+      expect(result[0]).toMatch(/local d = 4/);
+    });
+
+    it("does not swap names when long variable appears before short", () => {
+      // This tests the order-independence of collision avoidance
+      const scripts = ["local myLongVar = 1\nlocal a = 2\nprint(myLongVar + a)"];
+      const result = renameIdentifiers(scripts);
+
+      // 'a' should still be 'a' (not swapped to something else)
+      // Even though myLongVar appears first, 'a' should be reserved
+      expect(result[0]).toContain("local a = 2");
+
+      // myLongVar should become 'b' (not 'a')
+      expect(result[0]).not.toContain("myLongVar");
+
+      // Verify the renamed variable is 'b', not 'a'
+      expect(result[0]).toMatch(/local b = 1/);
+    });
+
+    it("does not clash with existing short function names", () => {
+      const scripts = ["local function a() return 1 end\nlocal function myLongFunc() return 2 end\nprint(a() + myLongFunc())"];
+      const result = renameIdentifiers(scripts);
+
+      // 'a' should stay as 'a'
+      expect(result[0]).toContain("function a()");
+
+      // myLongFunc should be renamed to 'b' (not 'a')
+      expect(result[0]).not.toContain("myLongFunc");
+      expect(result[0]).toMatch(/function b\(\)/);
+    });
+
+    it("does not clash with existing short global function names", () => {
+      const scripts = [
+        "function f() return 1 end\nfunction myGlobalFunc() return 2 end",
+        "print(f() + myGlobalFunc())",
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // 'f' should stay as 'f'
+      expect(result[0]).toContain("function f()");
+      expect(result[1]).toContain("f()");
+
+      // myGlobalFunc should be renamed consistently
+      expect(result[0]).not.toContain("myGlobalFunc");
+      expect(result[1]).not.toContain("myGlobalFunc");
+    });
+  });
+
+  describe("edge cases", () => {
+    it("handles empty script", () => {
+      const scripts = [""];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("");
+    });
+
+    it("handles script with only comments", () => {
+      const scripts = ["-- this is a comment"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("-- this is a comment");
+    });
+
+    it("handles syntax errors gracefully", () => {
+      const scripts = ["local x = "];
+      const result = renameIdentifiers(scripts);
+
+      // Should return original on parse error
+      expect(result[0]).toBe("local x = ");
+    });
+
+    it("handles multiple scripts with different locals", () => {
+      const scripts = [
+        "local foo = 1",
+        "local bar = 2",
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // Each script's locals are independent
+      expect(result[0]).not.toContain("foo");
+      expect(result[1]).not.toContain("bar");
+    });
+
+    it("preserves string literals containing identifier names", () => {
+      const scripts = ['local x = "myVariable"\nlocal myVariable = 1'];
+      const result = renameIdentifiers(scripts);
+
+      // String content should be preserved
+      expect(result[0]).toContain('"myVariable"');
+      // Variable should be renamed
+      expect(result[0]).not.toMatch(/local myVariable/);
+    });
+
+    it("handles table field access correctly", () => {
+      const scripts = ["local tbl = {}\ntbl.myField = 1"];
+      const result = renameIdentifiers(scripts);
+
+      // Table variable should be renamed (it's longer than 1 char)
+      expect(result[0]).not.toContain("tbl");
+      // Note: Field names ARE renamed (luaparse treats them as identifiers)
+      // This works correctly as long as field access is consistent (dot notation only)
+      expect(result[0]).not.toContain("myField");
+    });
+  });
+
+  describe("real-world patterns", () => {
+    it("renames Grid-style init code", () => {
+      const scripts = [
+        `MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
+function midirx_cb(self, event, header)
+    local cmd, el, val = event[2], event[3] - 32, event[4]
+    if cmd == MIDI_NOTE then
+        element[el]:led_value(1, val)
+    end
+end`,
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // User globals should be renamed
+      expect(result[0]).not.toContain("MIDI_NOTE");
+      expect(result[0]).not.toContain("MIDI_CC");
+      expect(result[0]).not.toContain("CH");
+
+      // Callback name should be renamed
+      expect(result[0]).not.toContain("midirx_cb");
+
+      // Locals should be renamed
+      expect(result[0]).not.toContain("cmd");
+      expect(result[0]).not.toContain(" el,");
+      expect(result[0]).not.toContain(" val ");
+
+      // Reserved should NOT be renamed
+      expect(result[0]).toContain("self");
+      expect(result[0]).toContain("event[");
+      expect(result[0]).toContain("header");
+
+      // Builtins should NOT be renamed
+      expect(result[0]).toContain("page_current");
+      expect(result[0]).toContain("element[");
+      expect(result[0]).toContain("led_value");
+    });
+
+    it("renames button handler code", () => {
+      const scripts = [
+        `local note, val = 32 + self:element_index(), self:button_value()
+if self:button_state() == 0 then
+    if self:button_elapsed_time() > 1000 then
+        note = note + 16
+        val = 127
+    end
+end
+midi_send(CH, MIDI_NOTE, note, val)`,
+      ];
+      const result = renameIdentifiers(scripts);
+
+      // Locals should be renamed
+      expect(result[0]).not.toContain("note");
+      expect(result[0]).not.toContain(" val");
+
+      // Globals should be renamed
+      expect(result[0]).not.toContain("CH");
+      expect(result[0]).not.toContain("MIDI_NOTE");
+
+      // Builtins preserved
+      expect(result[0]).toContain("midi_send");
+      expect(result[0]).toContain("self:");
     });
   });
 });
