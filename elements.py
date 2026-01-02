@@ -1,10 +1,48 @@
 from ableton.v3.control_surface import ElementsBase, MIDI_CC_TYPE, MIDI_NOTE_TYPE
+from ableton.v3.control_surface.elements import EncoderElement
+from ableton.v3.live import liveobj_valid, parameter_value_to_midi_value
 
 NUM_TRACKS = 8
 NUM_SCENES = 4
 
 
+class FeedbackEncoderElement(EncoderElement):
+    """Encoder that sends MIDI feedback for all parameters, not just internal ones."""
+
+    send_depends_on_forwarding = False
+
+    def reset(self):
+        if liveobj_valid(self.mapped_object):
+            self._parameter_value_changed()
+
+    def _parameter_value_changed(self):
+        if liveobj_valid(self.mapped_object) and not self._block_internal_parameter_feedback:
+            midi_value = parameter_value_to_midi_value(
+                self.mapped_object, max_value=self._max_value
+            )
+            if len(self._feedback_values) > midi_value:
+                midi_value = self._feedback_values[midi_value]
+                if isinstance(midi_value, tuple):
+                    midi_value = midi_value[0] + (midi_value[1] << 7)
+            self.send_value(midi_value)
+
+
+def create_feedback_encoder(identifier, name, **k):
+    return FeedbackEncoderElement(identifier, name=name, **k)
+
+
 class Elements(ElementsBase):
+    def add_encoder_matrix(self, identifiers, base_name, channels=None, *a, **k):
+        """Override to use FeedbackEncoderElement."""
+        self.add_matrix(
+            identifiers,
+            base_name,
+            *a,
+            channels=channels,
+            element_factory=create_feedback_encoder,
+            **k,
+        )
+
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
 
