@@ -7,7 +7,7 @@ import { loadLuaConfig } from "./lua-loader.js";
 
 // Dynamically import grid-protocol to work around ESM issues
 const gridProtocol = await import("@intechstudio/grid-protocol");
-const { grid } = gridProtocol;
+const { grid, GridScript } = gridProtocol;
 
 // =============================================================================
 // Constants
@@ -587,6 +587,7 @@ program
   .description("Convert Lua config to JSON")
   .argument("<input>", "Path to Lua config file")
   .option("-o, --output <path>", "Output file path (prints to stdout if not specified)")
+  .option("--no-minify", "Skip minification (keep human-readable function names)")
   .action(async (inputPath: string, options) => {
     const fullPath = path.resolve(inputPath);
 
@@ -608,6 +609,17 @@ program
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to parse Lua config: ${msg}`);
       process.exit(1);
+    }
+
+    // Apply minification by default
+    if (options.minify !== false) {
+      for (const element of config.configs) {
+        for (const event of element.events) {
+          if (event.config) {
+            event.config = GridScript.compressScript(event.config);
+          }
+        }
+      }
     }
 
     const json = JSON.stringify(config, null, 2);

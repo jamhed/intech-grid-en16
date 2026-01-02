@@ -47,17 +47,23 @@ Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
 ### Convert Lua to JSON
 
-Convert a Lua config file to JSON format:
+Convert a Lua config file to JSON format (minified by default):
 
 ```bash
 npx tsx grid-cli.ts convert ../configs/EN16-Control.lua
 npx tsx grid-cli.ts convert ../configs/EN16-Control.lua -o output.json
+npx tsx grid-cli.ts convert ../configs/EN16-Control.lua --no-minify
 ```
 
 Options:
 | Flag | Description |
 |------|-------------|
 | `-o, --output <path>` | Output file path (prints to stdout if not specified) |
+| `--no-minify` | Skip minification (keep human-readable function names) |
+
+Minification uses `@intechstudio/grid-protocol` to:
+- Convert long function names to short aliases (`encoder_value` → `eva`)
+- Remove unnecessary whitespace
 
 ## Config File Formats
 

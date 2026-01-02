@@ -25,8 +25,9 @@ function extractFunctionBody(source: string, startLine: number, endLine: number)
 
   let body = fnLines.join("\n");
 
-  // Remove function declaration
+  // Remove function declaration (handles: name = function(...), function name(...), function(...))
   body = body.replace(/^\s*\w+\s*=\s*function\s*\([^)]*\)\s*/m, "");
+  body = body.replace(/^\s*function\s+\w+\s*\([^)]*\)\s*/m, "");
   body = body.replace(/^\s*function\s*\([^)]*\)\s*/m, "");
 
   // Remove trailing end and comma
