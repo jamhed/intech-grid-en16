@@ -47,8 +47,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Pyright
-        run: pip install pyright
+      - name: Install tools
+        run: pip install ruff pyright
+
+      - name: Format check
+        working-directory: control_surface
+        run: ruff format --check .
+
+      - name: Lint
+        working-directory: control_surface
+        run: ruff check .
 
       - name: Type check
         working-directory: control_surface

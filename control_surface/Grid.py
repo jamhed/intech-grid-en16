@@ -7,18 +7,20 @@ Hardware layout:
 - 16 long-press buttons (Note 48-63): first 8 for track arm
 - 1 control button (Note 64): refresh surface
 """
-from _Framework.ControlSurface import ControlSurface
-from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
-from _Framework.EncoderElement import EncoderElement
-from _Framework.ButtonElement import ButtonElement
-from _Framework.DeviceComponent import DeviceComponent
-from _Framework.SessionComponent import SessionComponent
-from _Framework.ButtonMatrixElement import ButtonMatrixElement
-from _Framework.MixerComponent import MixerComponent
-from _Framework.ClipSlotComponent import ClipSlotComponent
-from _Framework.SceneComponent import SceneComponent
-import Live
+
 import logging
+
+import Live
+from _Framework.ButtonElement import ButtonElement
+from _Framework.ButtonMatrixElement import ButtonMatrixElement
+from _Framework.ClipSlotComponent import ClipSlotComponent
+from _Framework.ControlSurface import ControlSurface
+from _Framework.DeviceComponent import DeviceComponent
+from _Framework.EncoderElement import EncoderElement
+from _Framework.InputControlElement import MIDI_CC_TYPE, MIDI_NOTE_TYPE
+from _Framework.MixerComponent import MixerComponent
+from _Framework.SceneComponent import SceneComponent
+from _Framework.SessionComponent import SessionComponent
 
 logger = logging.getLogger(__name__)
 
@@ -39,22 +41,21 @@ NUM_TRACK_PARAMS = 4  # volume + 3 sends
 
 class EncoderLayout:
     """Named slices for encoder groups."""
+
     DEVICE = slice(0, NUM_TRACKS)
     TRACK = slice(NUM_ENCODERS - NUM_TRACK_PARAMS, NUM_ENCODERS)
 
 
 class ButtonLayout:
     """Named slices for button groups."""
+
     TRACK_SELECT = slice(0, NUM_TRACKS)
     RETURN_SELECT = slice(NUM_TRACKS, NUM_TRACKS + NUM_RETURNS)
     CLIP_LAUNCH = slice(NUM_TRACKS + NUM_RETURNS, NUM_TRACKS + NUM_RETURNS + NUM_SCENES)
 
 
 def make_encoder(identifier, name):
-    return EncoderElement(
-        MIDI_CC_TYPE, CHANNEL, identifier,
-        map_mode=Live.MidiMap.MapMode.absolute, name=name
-    )
+    return EncoderElement(MIDI_CC_TYPE, CHANNEL, identifier, map_mode=Live.MidiMap.MapMode.absolute, name=name)
 
 
 def make_button(identifier, name):
@@ -176,7 +177,7 @@ class Grid(ControlSurface):
             return
 
         mixer = track.mixer_device
-        sends = list(mixer.sends[:NUM_TRACK_PARAMS - 1])
+        sends = list(mixer.sends[: NUM_TRACK_PARAMS - 1])
         params = [mixer.volume] + sends
 
         logger.info("Track controls: %s (volume + %d sends)", track.name, len(sends))

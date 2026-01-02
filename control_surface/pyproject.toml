@@ -5,3 +5,14 @@ description = "Intech Grid control surface for Ableton Live"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
