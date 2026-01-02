@@ -75,21 +75,22 @@ Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
 ### Event Types
 
-| ID | Name | Description |
-|----|------|-------------|
-| 0 | init | Element initialization |
-| 1 | potmeter | Potentiometer change (PO16, PBF4) |
-| 2 | encoder | Encoder rotation |
-| 3 | button | Button press/release |
-| 4 | utility | System utility event |
-| 5 | midirx | MIDI receive callback |
-| 6 | timer | Timer tick |
-| 7 | endless | Endless encoder (EF44) |
-| 8 | draw | Display draw event |
+| ID  | Name     | Description                       |
+| --- | -------- | --------------------------------- |
+| 0   | init     | Element initialization            |
+| 1   | potmeter | Potentiometer change (PO16, PBF4) |
+| 2   | encoder  | Encoder rotation                  |
+| 3   | button   | Button press/release              |
+| 4   | utility  | System utility event              |
+| 5   | midirx   | MIDI receive callback             |
+| 6   | timer    | Timer tick                        |
+| 7   | endless  | Endless encoder (EF44)            |
+| 8   | draw     | Display draw event                |
 
 ### Element 255 (System)
 
 The system element handles global functionality:
+
 - **Event 0 (init)**: Global setup, MIDI callback registration
 - **Event 4 (utility)**: Page change handler
 - **Event 5 (midirx)**: MIDI input routing
@@ -100,6 +101,7 @@ The system element handles global functionality:
 Maximum script length: **909 characters** (including `<?lua ?>` wrapper)
 
 The CLI validates script length before upload and fails with an error if exceeded:
+
 ```
 Validation failed: Script too long for element 0, event 0: 934/909 characters.
 Reduce by 25 characters.
@@ -113,11 +115,11 @@ Reduce by 25 characters.
 
 ### Supported USB Devices
 
-| VID | PID | Architecture |
-|-----|-----|--------------|
-| 0x03eb | 0xecac | D51 |
-| 0x03eb | 0xecad | D51 (alt) |
-| 0x303a | 0x8123 | ESP32 |
+| VID    | PID    | Architecture |
+| ------ | ------ | ------------ |
+| 0x03eb | 0xecac | D51          |
+| 0x03eb | 0xecad | D51 (alt)    |
+| 0x303a | 0x8123 | ESP32        |
 
 ## Troubleshooting
 
@@ -136,6 +138,7 @@ Reduce by 25 characters.
 ### Script validation fails
 
 Minify your Lua scripts:
+
 - Use short function names: `self:eva()` instead of `self:encoder_value()`
 - Remove comments and whitespace
 - Combine statements: `local a,b=1,2`

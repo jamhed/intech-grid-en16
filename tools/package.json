@@ -6,18 +6,31 @@
   "scripts": {
     "cli": "tsx grid-cli.ts",
     "upload": "tsx grid-cli.ts upload",
-    "download": "tsx grid-cli.ts download"
+    "download": "tsx grid-cli.ts download",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "check": "prettier --check . && eslint ."
   },
   "dependencies": {
     "@intechstudio/grid-protocol": "^1.20251126.1325",
-    "commander": "^12.0.0",
+    "commander": "^14.0.2",
     "lodash": "^4.17.21",
-    "serialport": "^12.0.0",
+    "serialport": "^13.0.0",
     "tslib": "^2.8.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.4.0"
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^25.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.51.0",
+    "@typescript-eslint/parser": "^8.51.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   }
 }

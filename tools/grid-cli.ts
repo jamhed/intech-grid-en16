@@ -323,7 +323,11 @@ async function sendAndWaitAck(port: SerialPort, packet: Packet, options: Partial
   await sendAndWait(port, packet, (buf) => (hasAcknowledge(buf) ? true : null), { timeout, retries });
 }
 
-async function sendAndWaitReport(port: SerialPort, packet: Packet, options: Partial<SendOptions> = {}): Promise<string> {
+async function sendAndWaitReport(
+  port: SerialPort,
+  packet: Packet,
+  options: Partial<SendOptions> = {}
+): Promise<string> {
   const { timeout = 500, retries = 2, debug = false } = options;
   const result = await sendAndWait(port, packet, parseConfigReport, { timeout, retries, debug });
   return result.actionString;
@@ -347,12 +351,7 @@ function parseEventType(event: number | string): number {
   return parsed;
 }
 
-async function uploadConfig(
-  port: SerialPort,
-  config: ConfigFile,
-  pages: number[],
-  verbose: boolean
-): Promise<void> {
+async function uploadConfig(port: SerialPort, config: ConfigFile, pages: number[], verbose: boolean): Promise<void> {
   const totalEvents = countEvents(config) * pages.length;
   let current = 0;
 
@@ -384,7 +383,9 @@ async function uploadConfig(
           process.stdout.write(`\r[${bar}] ${pct}% | Element ${element.controlElementNumber}, Event ${eventType}`);
 
           if (verbose) {
-            console.log(`  Sent: element=${element.controlElementNumber}, event=${eventType}, len=${actionString.length}`);
+            console.log(
+              `  Sent: element=${element.controlElementNumber}, event=${eventType}, len=${actionString.length}`
+            );
           }
         } catch (err) {
           console.error(`\nFailed: element ${element.controlElementNumber}, event ${eventType}`);
