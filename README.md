@@ -127,7 +127,7 @@ See [grid-cli/README.md](grid-cli/README.md) for full documentation.
 
 # EN16 Configuration
 
-The controller requires a custom profile configured via [Grid Editor](https://docs.intech.studio/guides/introduction) or the [Grid CLI tool](#grid-cli-tool).
+The controller requires a custom profile configured via [Grid Editor](https://docs.intech.studio/guides/introduction) or the [Grid CLI tool](grid-cli/README.md).
 
 ## MIDI Layout
 
