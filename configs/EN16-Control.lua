@@ -19,21 +19,21 @@ local YELLOW = {255, 255, 0, 1}
 local function encoder(color, long_press)
   return {
     init = function(self)
-      self:glc(1, {color})
+      self:led_color(1, {color})
     end,
 
     encoder = function(self)
-      local cc, val = 32 + self:ind(), self:eva()
-      gms(CH, MIDI_CC, cc, val)
+      local cc, val = 32 + self:element_index(), self:encoder_value()
+      midi_send(CH, MIDI_CC, cc, val)
     end,
 
     button = function(self)
-      local note, val = 32 + self:ind(), self:bva()
-      if long_press and self:bst() == 0 and self:bel() > 1000 then
+      local note, val = 32 + self:element_index(), self:button_value()
+      if long_press and self:button_state() == 0 and self:button_elapsed_time() > 1000 then
         note = note + 16
         val = 127
       end
-      gms(CH, MIDI_NOTE, note, val)
+      midi_send(CH, MIDI_NOTE, note, val)
     end,
   }
 end
@@ -68,33 +68,33 @@ return grid.config {
   -- System element
   [255] = {
     init = function(self)
-      MIDI_NOTE, MIDI_CC, CH = 144, 176, gpc()
+      MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
 
       function self.midirx_cb(self, event, header)
         if header[1] ~= 13 then return end
 
         local cmd, el, val = event[2], event[3] - 32, event[4]
         local on = val == 127
-        local elm = ele[el >= 16 and el - 16 or el]
+        local elm = element[el >= 16 and el - 16 or el]
 
         if cmd == MIDI_NOTE and el >= 16 then
-          elm:glc(1, {on and {255, 0, 0, 1} or {0, 0, 255, 1}})
+          elm:led_color(1, {on and {255, 0, 0, 1} or {0, 0, 255, 1}})
         elseif cmd == MIDI_NOTE then
-          elm:glp(1, on and 100 or 0)
+          elm:led_value(1, on and 100 or 0)
         elseif cmd == MIDI_CC and el < 16 then
-          elm:eva(val)
+          elm:encoder_value(val)
         end
       end
 
-      self:gtt(1000)
+      self:timer_start(1000)
     end,
 
     utility = function(self)
-      gpl(gpn())
+      page_load(page_next())
     end,
 
     timer = function(self)
-      gms(CH, MIDI_NOTE, 64, 127)
+      midi_send(CH, MIDI_NOTE, 64, 127)
     end,
   },
 }

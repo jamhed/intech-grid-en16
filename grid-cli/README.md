@@ -95,25 +95,25 @@ return grid.config {
 
   [0] = {
     init = function(self)
-      self:glc(1, {BLUE})
+      self:led_color(1, {BLUE})
     end,
     encoder = function(self)
-      local cc, val = 32 + self:ind(), self:eva()
-      gms(CH, MIDI_CC, cc, val)
+      local cc, val = 32 + self:element_index(), self:encoder_value()
+      midi_send(CH, MIDI_CC, cc, val)
     end,
     button = function(self)
-      local note, val = 32 + self:ind(), self:bva()
-      gms(CH, MIDI_NOTE, note, val)
+      local note, val = 32 + self:element_index(), self:button_value()
+      midi_send(CH, MIDI_NOTE, note, val)
     end,
   },
 
   [255] = {
     init = function(self)
-      MIDI_NOTE, MIDI_CC, CH = 144, 176, gpc()
-      self:gtt(1000)
+      MIDI_NOTE, MIDI_CC, CH = 144, 176, page_current()
+      self:timer_start(1000)
     end,
     timer = function(self)
-      gms(CH, MIDI_NOTE, 64, 127)
+      midi_send(CH, MIDI_NOTE, 64, 127)
     end,
   },
 }
