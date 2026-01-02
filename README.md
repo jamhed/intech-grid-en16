@@ -1,6 +1,6 @@
 # Intech EN16 Ableton Control Surface
 
-Control Ableton Live with the Intech EN16 grid controller using the modern `ableton.v3` framework.
+Control Ableton Live with the Intech EN16 grid controller.
 
 ## Features
 
@@ -15,6 +15,7 @@ Control Ableton Live with the Intech EN16 grid controller using the modern `able
 | Encoder 14 | Send B (selected track) |
 | Encoder 15 | Send A (selected track) |
 | Encoder 16 | Volume (selected track) |
+| Control Button | Refresh surface |
 
 ## Installation
 
@@ -33,40 +34,25 @@ Control Ableton Live with the Intech EN16 grid controller using the modern `able
 
 ```
 Intech/
-├── __init__.py              # Entry point + ControlSurfaceSpecification
-├── elements.py              # MIDI control definitions (ElementsBase)
-├── mappings.py              # Control → component wiring
-├── session.py               # Custom toggle-clip session
-├── target_track_controls.py # Volume/sends for selected track
-├── docs/
-│   └── control-surface-guide.md  # Development guide
+├── __init__.py              # Entry point
+├── Grid.py                  # Control surface implementation
 ├── grid/
 │   └── EN16-Control.json    # Grid controller configuration
 ├── tools/
 │   ├── grid-cli.ts          # Upload/download Grid configs
 │   └── README.md            # CLI documentation
+├── docs/
+│   └── GRID_LUA.md          # Grid Lua API reference
 └── __ext__/
     └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
-```
-
-### Key v3 Imports
-
-```python
-from ableton.v3.control_surface import (
-    ControlSurface, ControlSurfaceSpecification,
-    Component, ElementsBase,
-    MIDI_CC_TYPE, MIDI_NOTE_TYPE,
-)
-from ableton.v3.base import depends, listens
-from ableton.v3.live import liveobj_valid
 ```
 
 ## Development
 
 ### Prerequisites
 
-- Ableton Live 12.1+ (uses `ableton.v3` framework)
-- Python 3.11 (bundled with Live)
+- Ableton Live 11+ (uses `_Framework`)
+- Python 3.x (bundled with Live)
 
 ### Enable Script Reloading
 
@@ -108,8 +94,6 @@ git submodule update --init
 
 ### References
 
-- [Control Surface Development Guide](docs/control-surface-guide.md)
-- [NK2Reshift](https://github.com/kmontag/NK2Reshift) - Modern v3 example
 - [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) - Decompiled scripts
 - [ableton-control-surface-toolkit](https://github.com/oslo1989/ableton-control-surface-toolkit) - Live object documentation
 
