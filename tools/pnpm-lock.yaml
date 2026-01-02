@@ -17,18 +17,12 @@ importers:
       lodash:
         specifier: ^4.17.21
         version: 4.17.21
-      luamin:
-        specifier: ^1.0.4
-        version: 1.0.4
       serialport:
         specifier: ^12.0.0
         version: 12.0.0
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
-      wasmoon:
-        specifier: ^1.16.0
-        version: 1.16.0
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -265,9 +259,6 @@ packages:
     resolution: {integrity: sha512-9On64rhzuqKdOQyiYLYv2lQOh3TZU/D3+IWCR5gk0alPel2nwpp4YwDEGiUBfrQZEdQ6xww0PWkzqth4wqwX3Q==}
     engines: {node: '>=12.0.0'}
 
-  '@types/emscripten@1.39.10':
-    resolution: {integrity: sha512-TB/6hBkYQJxsZHSqyeuO1Jt0AB/bW6G7rHt9g7lML7SOF6lbgcHvw/Lr+69iqN0qxgXLhWKScAon73JNnptuDw==}
-
   '@types/node@20.19.27':
     resolution: {integrity: sha512-N2clP5pJhB2YnZJ3PIHFk5RkygRX5WO/5f0WC08tp0wd+sv0rsJk3MqWn3CbNmT2J505a5336jaQj4ph1AdMug==}
 
@@ -299,14 +290,6 @@ packages:
 
   lodash@4.17.21:
     resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
-
-  luamin@1.0.4:
-    resolution: {integrity: sha512-z1h0bclRD/QGsS/Dz4Skp9z0qPTmmm+IKcrCapGmdTczPWVdN9f9jk6WqkNrcifQr8+n9Pzsm9WkwpOH1JBUAQ==}
-    hasBin: true
-
-  luaparse@0.2.1:
-    resolution: {integrity: sha512-VKBcryd5nJte4ZNR29NOk8F/UkMipjeb4yoxcSS51z6QAzg9DXUC2WsfLniS0J1eh3pr/ZL3e9ha6V8fhoLbBQ==}
-    hasBin: true
 
   ms@2.1.2:
     resolution: {integrity: sha512-sGkPx+VjMtmA6MX27oA4FBFELFCZZ4S4XqeGOXCv68tT+jb3vk/RyaKWP0PTKyWtmLSM0b+adUTEvbs1PEaH2w==}
@@ -340,10 +323,6 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
-
-  wasmoon@1.16.0:
-    resolution: {integrity: sha512-FlRLb15WwAOz1A9OQDbf6oOKKSiefi5VK0ZRF2wgH9xk3o5SnU11tNPaOnQuAh1Ucr66cwwvVXaeVRaFdRBt5g==}
-    hasBin: true
 
 snapshots:
 
@@ -481,8 +460,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@types/emscripten@1.39.10': {}
-
   '@types/node@20.19.27':
     dependencies:
       undici-types: 6.21.0
@@ -531,12 +508,6 @@ snapshots:
 
   lodash@4.17.21: {}
 
-  luamin@1.0.4:
-    dependencies:
-      luaparse: 0.2.1
-
-  luaparse@0.2.1: {}
-
   ms@2.1.2: {}
 
   node-addon-api@7.0.0: {}
@@ -576,7 +547,3 @@ snapshots:
   typescript@5.9.3: {}
 
   undici-types@6.21.0: {}
-
-  wasmoon@1.16.0:
-    dependencies:
-      '@types/emscripten': 1.39.10
