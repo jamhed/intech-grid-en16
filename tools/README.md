@@ -2,6 +2,8 @@
 
 Command-line tool for uploading and downloading Grid controller configurations.
 
+Supports both JSON and Lua config formats.
+
 ## Installation
 
 ```bash
@@ -13,9 +15,13 @@ npm install
 
 ### Upload Configuration
 
-Upload a JSON config file to a connected Grid device:
+Upload a config file to a connected Grid device:
 
 ```bash
+# Upload Lua config (recommended)
+npx tsx grid-cli.ts upload ../grid/EN16-Control.lua
+
+# Upload JSON config
 npx tsx grid-cli.ts upload ../grid/EN16-Control.json
 ```
 
@@ -32,6 +38,10 @@ Options:
 Download the current configuration from a Grid device:
 
 ```bash
+# Download as Lua (readable)
+npx tsx grid-cli.ts download ./backup.lua
+
+# Download as JSON
 npx tsx grid-cli.ts download ./backup.json
 ```
 
@@ -41,39 +51,103 @@ Options:
 | `-p, --port <path>` | Serial port path (auto-detects if not specified) |
 | `-t, --type <type>` | Device type (default: EN16) |
 | `--page <n>` | Download from specific page (0-3, default: 0) |
+| `-f, --format <fmt>` | Output format: json or lua (auto-detect from extension) |
 | `-v, --verbose` | Show detailed progress |
 
 Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
-## Config File Format
+### Convert Between Formats
 
-```json
-{
-  "name": "My Config",
-  "type": "EN16",
-  "version": { "major": "1", "minor": "0", "patch": "0" },
-  "configs": [
-    {
-      "controlElementNumber": 0,
-      "events": [
-        { "event": 0, "config": "self:led_color(1,{{0,0,255,1}})" },
-        { "event": 2, "config": "local cc,val=32+self:ind(),self:eva() midi_send(0,176,cc,val)" },
-        { "event": 3, "config": "local note,val=32+self:ind(),self:bva() midi_send(0,144,note,val)" }
-      ]
-    },
-    {
-      "controlElementNumber": 255,
-      "events": [
-        { "event": 0, "config": "-- system element init" },
-        { "event": 4, "config": "-- utility event" },
-        { "event": 6, "config": "midi_send(0,144,64,127)" }
-      ]
-    }
-  ]
+Convert config files between JSON and Lua formats:
+
+```bash
+# JSON to Lua
+npx tsx grid-cli.ts convert config.json config.lua
+
+# Lua to JSON
+npx tsx grid-cli.ts convert config.lua config.json
+```
+
+## Lua Config Format
+
+Event handlers are real Lua functions. Template parameters are automatically inlined.
+
+```lua
+local grid = require("grid")
+
+-- Colors
+local BLUE = {0, 0, 255, 1}
+local GREEN = {87, 255, 165, 1}
+
+-- Template with parameters (color, long_press are inlined at compile time)
+local function encoder(color, long_press)
+  return {
+    init = function(self)
+      self:glc(1, {color})
+    end,
+
+    encoder = function(self)
+      local cc, val = 32 + self:ind(), self:eva()
+      gms(CH, MIDI_CC, cc, val)
+    end,
+
+    button = function(self)
+      local note, val = 32 + self:ind(), self:bva()
+      if long_press and self:bst() == 0 and self:bel() > 1000 then
+        note = note + 16
+        val = 127
+      end
+      gms(CH, MIDI_NOTE, note, val)
+    end,
+  }
+end
+
+return grid.config {
+  name = "EN16 Control",
+  type = "EN16",
+  version = {1, 0, 0},
+
+  [0] = encoder(BLUE, true),
+  [1] = encoder(BLUE, true),
+  [8] = encoder(GREEN, false),
+
+  [255] = {
+    init = function(self)
+      MIDI_NOTE, MIDI_CC, CH = 144, 176, gpc()
+      self:gtt(1000)
+    end,
+
+    timer = function(self)
+      gms(CH, MIDI_NOTE, 64, 127)
+    end,
+  },
 }
 ```
 
-### Event Types
+### How It Works
+
+1. Template function `encoder(color, long_press)` returns element config
+2. Inner functions close over `color` and `long_press` variables
+3. Runtime extracts function bodies and inlines upvalues:
+   - `{color}` → `{0, 0, 255, 1}`
+   - `long_press` → `true`
+4. Result is minified and uploaded
+
+### Grid Library
+
+| Function | Description |
+|----------|-------------|
+| `grid.config(tbl)` | Config wrapper (returns table as-is) |
+| `grid.spread(from, to, fn)` | Generate elements for a range |
+| `grid.merge(...)` | Merge multiple tables |
+
+### Benefits
+
+- **Real Lua code**: Full syntax highlighting and tooling
+- **Parameterized templates**: `encoder(BLUE, true)` generates element with inlined values
+- **Auto-minification**: Function bodies extracted and minified
+
+## Event Types
 
 | ID | Name | Description |
 |----|------|-------------|
@@ -90,16 +164,16 @@ Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 ### Element 255 (System)
 
 The system element handles global functionality:
-- **Event 0 (init)**: Global setup, MIDI callback registration
-- **Event 4 (utility)**: Page change handler
-- **Event 5 (midirx)**: MIDI input routing
-- **Event 6 (timer)**: Periodic sync/heartbeat
+- **init**: Global setup, MIDI callback registration
+- **utility**: Page change handler
+- **midirx**: MIDI input routing
+- **timer**: Periodic sync/heartbeat
 
 ## Script Limits
 
-Maximum script length: **909 characters** (including `<?lua ?>` wrapper)
+Maximum script length: **909 characters** (after minification)
 
-The CLI validates script length before upload and fails with an error if exceeded:
+The CLI validates script length before upload:
 ```
 Validation failed: Script too long for element 0, event 0: 934/909 characters.
 Reduce by 25 characters.
@@ -109,7 +183,8 @@ Reduce by 25 characters.
 
 - Baud rate: 2,000,000
 - Protocol: Grid binary protocol via USB serial
-- Uses [@intechstudio/grid-protocol](https://www.npmjs.com/package/@intechstudio/grid-protocol) for packet encoding/decoding
+- Lua runtime: wasmoon (Lua 5.4 via WASM)
+- Minification: luamin
 
 ### Supported USB Devices
 
@@ -132,10 +207,3 @@ Reduce by 25 characters.
 1. Check USB connection
 2. Verify device type matches: `-t EN16`
 3. Try again (transient communication errors)
-
-### Script validation fails
-
-Minify your Lua scripts:
-- Use short function names: `self:eva()` instead of `self:encoder_value()`
-- Remove comments and whitespace
-- Combine statements: `local a,b=1,2`

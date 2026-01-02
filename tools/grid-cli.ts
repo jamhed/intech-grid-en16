@@ -3,6 +3,7 @@ import { SerialPort } from "serialport";
 import { program } from "commander";
 import * as fs from "fs";
 import * as path from "path";
+import { executeLuaConfig, closeLuaEngine } from "./lua-runtime.js";
 
 // Dynamically import grid-protocol to work around ESM issues
 const gridProtocol = await import("@intechstudio/grid-protocol");
@@ -97,6 +98,49 @@ interface SendOptions {
   timeout: number;
   retries: number;
   debug?: boolean;
+}
+
+// =============================================================================
+// Lua Decompilation
+// =============================================================================
+
+function decompileLuaConfig(config: ConfigFile): string {
+  const lines: string[] = [];
+
+  lines.push(`return {`);
+  lines.push(`  name = "${config.name}",`);
+  lines.push(`  type = "${config.type}",`);
+  lines.push(`  version = {${config.version.major}, ${config.version.minor}, ${config.version.patch}},`);
+  lines.push(``);
+
+  for (const element of config.configs) {
+    lines.push(`  [${element.controlElementNumber}] = {`);
+
+    for (const event of element.events) {
+      const eventType = typeof event.event === "string" ? parseInt(event.event, 10) : event.event;
+      const eventName = EVENT_NAMES[eventType] ?? `event${eventType}`;
+      const script = event.config
+        .replace(/^--\[\[@cb\]\]\s*/, "") // Remove callback marker
+        .trim();
+
+      // Format as function
+      lines.push(`    ${eventName} = function(self)`);
+
+      // Indent script lines
+      for (const line of script.split(/[;\n]+/).filter((l) => l.trim())) {
+        lines.push(`      ${line.trim()}`);
+      }
+
+      lines.push(`    end,`);
+    }
+
+    lines.push(`  },`);
+    lines.push(``);
+  }
+
+  lines.push(`}`);
+
+  return lines.join("\n");
 }
 
 // =============================================================================
@@ -503,7 +547,7 @@ program.name("grid-cli").description("Grid device configuration CLI").version("1
 program
   .command("upload")
   .description("Upload configuration to Grid device")
-  .argument("<config>", "Path to config JSON file")
+  .argument("<config>", "Path to config file (.json or .lua)")
   .option("-p, --port <path>", "Serial port path (auto-detect if not specified)")
   .option("--page <n>", "Upload to specific page only (0-3)", (v) => parseInt(v, 10))
   .option("-v, --verbose", "Show detailed progress")
@@ -516,10 +560,19 @@ program
       process.exit(1);
     }
 
+    const isLua = fullPath.endsWith(".lua");
     let config: ConfigFile;
+
     try {
       const raw = fs.readFileSync(fullPath, "utf-8");
-      config = JSON.parse(raw);
+
+      if (isLua) {
+        // Execute Lua config using wasmoon runtime
+        console.log("Executing Lua config...");
+        config = await executeLuaConfig(raw);
+      } else {
+        config = JSON.parse(raw);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`Failed to parse config file: ${msg}`);
@@ -552,7 +605,7 @@ program
 
     console.log("Grid CLI - Upload");
     console.log("=================");
-    console.log(`Config:  ${path.basename(configPath)}`);
+    console.log(`Config:  ${path.basename(configPath)}${isLua ? " (Lua)" : ""}`);
     console.log(`Type:    ${config.type ?? "Unknown"}`);
     console.log(`Pages:   ${pages.join(", ")}`);
     console.log(`Events:  ${countEvents(config)} per page`);
@@ -578,10 +631,11 @@ program
 program
   .command("download")
   .description("Download configuration from Grid device")
-  .argument("<output>", "Output JSON file path")
+  .argument("<output>", "Output file path (.json or .lua)")
   .option("-p, --port <path>", "Serial port path (auto-detect if not specified)")
   .option("-t, --type <type>", "Device type (EN16, PO16, BU16, EF44, PBF4, TEK2, PB44)", "EN16")
   .option("--page <n>", "Download from specific page (0-3)", (v) => parseInt(v, 10), 0)
+  .option("-f, --format <fmt>", "Output format: json or lua (auto-detect from extension)")
   .option("-v, --verbose", "Show detailed progress")
   .action(async (outputPath: string, options) => {
     const deviceType = options.type.toUpperCase();
@@ -593,11 +647,27 @@ program
       process.exit(1);
     }
 
+    // Determine output format
+    let format = options.format?.toLowerCase();
+    if (!format) {
+      if (outputPath.endsWith(".lua")) {
+        format = "lua";
+      } else {
+        format = "json";
+      }
+    }
+
+    if (format !== "json" && format !== "lua") {
+      console.error(`Invalid format: ${format}. Use 'json' or 'lua'.`);
+      process.exit(1);
+    }
+
     console.log("Grid CLI - Download");
     console.log("===================");
     console.log(`Type:     ${deviceType}`);
     console.log(`Page:     ${options.page}`);
     console.log(`Elements: ${deviceConfig.elements.length}`);
+    console.log(`Format:   ${format}`);
     console.log(`Output:   ${outputPath}`);
 
     console.log("\nConnecting to Grid device...");
@@ -609,7 +679,13 @@ program
       const { config, failed } = await downloadConfig(port, deviceType, deviceConfig, options.page, options.verbose);
 
       const fullPath = path.resolve(outputPath);
-      fs.writeFileSync(fullPath, JSON.stringify(config, null, 2));
+
+      if (format === "lua") {
+        const luaSource = decompileLuaConfig(config);
+        fs.writeFileSync(fullPath, luaSource);
+      } else {
+        fs.writeFileSync(fullPath, JSON.stringify(config, null, 2));
+      }
 
       console.log("Download complete!");
       console.log(`Saved to: ${fullPath}`);
@@ -620,6 +696,53 @@ program
       }
     } finally {
       port.close();
+    }
+  });
+
+// Convert command: convert between JSON and Lua formats
+program
+  .command("convert")
+  .description("Convert config between JSON and Lua formats")
+  .argument("<input>", "Input file path (.json or .lua)")
+  .argument("<output>", "Output file path (.json or .lua)")
+  .action(async (inputPath: string, outputPath: string) => {
+    const fullInputPath = path.resolve(inputPath);
+
+    if (!fs.existsSync(fullInputPath)) {
+      console.error(`Input file not found: ${fullInputPath}`);
+      process.exit(1);
+    }
+
+    const inputIsLua = fullInputPath.endsWith(".lua");
+    const outputIsLua = outputPath.endsWith(".lua");
+
+    if (inputIsLua === outputIsLua) {
+      console.error("Input and output formats are the same. Use different extensions.");
+      process.exit(1);
+    }
+
+    try {
+      const raw = fs.readFileSync(fullInputPath, "utf-8");
+      const fullOutputPath = path.resolve(outputPath);
+
+      if (inputIsLua) {
+        // Lua -> JSON (execute Lua with wasmoon)
+        console.log("Executing Lua config...");
+        const config = await executeLuaConfig(raw);
+        fs.writeFileSync(fullOutputPath, JSON.stringify(config, null, 2));
+      } else {
+        // JSON -> Lua
+        console.log("Converting JSON to Lua...");
+        const config = JSON.parse(raw);
+        const luaSource = decompileLuaConfig(config);
+        fs.writeFileSync(fullOutputPath, luaSource);
+      }
+
+      console.log(`Converted: ${path.basename(inputPath)} -> ${path.basename(outputPath)}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Conversion failed: ${msg}`);
+      process.exit(1);
     }
   });
 
