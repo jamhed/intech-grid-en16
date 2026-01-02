@@ -38,24 +38,23 @@ Control Ableton Live with the Intech EN16 grid controller.
 ```text
 Intech/
 ├── __init__.py              # Entry point
-├── control_surface/         # Python project
-│   ├── Grid.py              # Control surface implementation
-│   ├── pyproject.toml
-│   └── pyrightconfig.json
+├── control_surface/
+│   └── Grid.py              # Control surface implementation
 ├── configs/
-│   └── EN16-Control.json    # Grid controller configuration
+│   ├── EN16-Control.json    # Grid config (JSON)
+│   └── EN16-Control.lua     # Grid config (Lua)
 ├── grid-cli/
-│   ├── grid-cli.ts          # Upload/download Grid configs
-│   └── README.md            # CLI documentation
+│   ├── grid-cli.ts          # CLI tool
+│   └── lua-loader.ts        # Lua config parser
 ├── docs/
-│   ├── en16-config.md       # EN16 configuration guide
-│   ├── grid-lua.md          # Grid Lua API reference
+│   ├── lua-config-guide.md  # Lua config authoring
+│   ├── en16-config.md       # EN16 configuration
+│   ├── grid-lua.md          # Lua API reference
 │   ├── grid-firmware.md     # Firmware internals
-│   └── lua-config-guide.md  # Lua config authoring guide
+│   └── api/                 # Handler documentation
 ├── scripts/
 │   └── check-docs.sh        # Lint & validate docs
-└── __ext__/
-    └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
+└── __ext__/                 # Git submodules
 ```
 
 ## Development
