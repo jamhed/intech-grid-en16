@@ -67,15 +67,6 @@ npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 
 See [EN16 Configuration Guide](docs/en16-config.md) for details on the Lua scripts.
 
-## Documentation
-
-- [Control Surface Architecture](docs/control-surface.md) - How the Ableton integration works
-- [EN16 Configuration Guide](docs/en16-config.md) - Element scripts and MIDI routing
-- [Lua Config Authoring Guide](docs/lua-config-guide.md) - Write configs in Lua
-- [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
-- [Grid Lua API](docs/grid-lua.md) - Full API reference
-- [Grid Firmware Internals](docs/grid-firmware.md) - Device runtime details
-
 ## Project Structure
 
 ```text
@@ -93,39 +84,47 @@ Intech/
 
 ## Development
 
-### Prerequisites
+### Control Surface (Python)
 
-- Ableton Live 11+
-- Python 3.x (bundled with Live)
+Edit `control_surface/Grid.py` to modify Ableton integration.
 
-### Script Reloading
+**Prerequisites:** Ableton Live 11+ (Python 3.x bundled)
 
-Add to `Options.txt` (requires Ableton Beta):
+**Reload scripts:** Add `-_ToolsMenuRemoteScripts` to `Options.txt` (Beta only), then use Tools → Reload MIDI Remote Scripts. Clear `__pycache__` before reloading.
 
-```text
--_ToolsMenuRemoteScripts
-```
-
-Location: `~/Library/Preferences/Ableton/Live x.x.x/Options.txt` (macOS) or `%APPDATA%\Ableton\Live x.x.x\Preferences\Options.txt` (Windows)
-
-After editing Python files, clear cache and reload:
-
-```bash
-rm -rf __pycache__
-```
-
-Then toggle Control Surface in Preferences or use Tools → Reload MIDI Remote Scripts.
-
-### Logs
+**View logs:**
 
 ```bash
 tail -f ~/Library/Preferences/Ableton/Live\ */Log.txt | grep -i intech
 ```
 
-### References
+**References:**
 
+- [Control Surface Architecture](docs/control-surface.md) - How the framework works
 - [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) - Decompiled scripts
 - [ableton-control-surface-toolkit](https://github.com/oslo1989/ableton-control-surface-toolkit) - Live object documentation
+
+### EN16 Configuration (Lua)
+
+Edit `configs/EN16-Control.lua` to modify controller behavior, then upload to the device.
+
+**Using Grid CLI:**
+
+```bash
+cd grid-cli && npm install
+npx tsx grid-cli.ts upload ../configs/EN16-Control.json
+```
+
+**Using Grid Editor:** Open [Grid Editor](https://editor.intech.studio/), connect your EN16, and configure elements visually.
+
+**References:**
+
+- [EN16 Configuration Guide](docs/en16-config.md) - Element scripts and MIDI routing
+- [Lua Config Authoring Guide](docs/lua-config-guide.md) - Write configs in Lua
+- [Grid CLI Tool](grid-cli/README.md) - CLI for upload/download
+- [Grid Lua API](docs/grid-lua.md) - Full API reference
+- [Grid Firmware Internals](docs/grid-firmware.md) - Device runtime details
+- [Grid Editor Documentation](https://docs.intech.studio/guides/introduction) - Official docs
 
 ## Known Issues
 
