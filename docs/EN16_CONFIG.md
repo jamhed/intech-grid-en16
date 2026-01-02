@@ -20,7 +20,8 @@ The EN16 needs custom Lua scripts on each element to:
 
 ## Configuration Files
 
-The configuration is stored in `configs/EN16-Control.json` (JSON format) or `configs/EN16-Control.lua` (Lua format).
+- [EN16-Control.json](../configs/EN16-Control.json) - JSON format (Grid Editor compatible)
+- [EN16-Control.lua](../configs/EN16-Control.lua) - Lua format (human-readable)
 
 Upload using the [Grid CLI tool](../grid-cli/README.md):
 ```bash
