@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as luaparse from "luaparse";
 import type { ConfigFile, EventConfig } from "./lib.js";
-import { EVENT_NAMES } from "./lib.js";
+import { EVENT_NAMES, SYSTEM_ELEMENT, sortElements } from "./lib.js";
 
 // Import grid protocol for Lua function names
 const gridProtocol = await import("@intechstudio/grid-protocol");
@@ -115,11 +115,7 @@ function serializeLuaValue(L: any, index: number, allowTable = true): string | n
         lua.lua_rawgeti(L, absIdx, i);
         const valType = lua.lua_type(L, -1);
 
-        if (
-          valType !== lua.LUA_TNUMBER &&
-          valType !== lua.LUA_TBOOLEAN &&
-          valType !== lua.LUA_TSTRING
-        ) {
+        if (valType !== lua.LUA_TNUMBER && valType !== lua.LUA_TBOOLEAN && valType !== lua.LUA_TSTRING) {
           lua.lua_pop(L, 1);
           return null;
         }
@@ -193,194 +189,150 @@ function inlineUpvalues(body: string, upvalues: Map<string, string>): string {
 // System event names that can appear at top level (not init - use root globals instead)
 const SYSTEM_EVENT_NAMES = ["utility", "timer"];
 
-// Grid API stubs for script execution
-const GRID_API_STUBS = `
-  -- LED functions
-  function glr() return 0 end  -- led_default_red
-  function glg() return 0 end  -- led_default_green
-  function glb() return 0 end  -- led_default_blue
-  function glp() end           -- led_value
-  function glt() end           -- led_timeout
-  function gln() end           -- led_color_min
-  function gld() end           -- led_color_mid
-  function glx() end           -- led_color_max
-  function glc() end           -- led_color
-  function glf() end           -- led_animation_rate
-  function gls() end           -- led_animation_type
-  function glpfs() end         -- led_animation_phase_rate_type
-  function glag() return 0 end -- led_address_get
-  led_default_red = glr
-  led_default_green = glg
-  led_default_blue = glb
-  led_value = glp
-  led_timeout = glt
-  led_color_min = gln
-  led_color_mid = gld
-  led_color_max = glx
-  led_color = glc
-  led_animation_rate = glf
-  led_animation_type = gls
-  led_animation_phase_rate_type = glpfs
-  led_address_get = glag
+// =============================================================================
+// Grid API Stub Generation
+// =============================================================================
 
-  -- MIDI functions
-  function gms() end           -- midi_send
-  function gmss() end          -- midi_sysex_send
-  midi_send = gms
-  midi_sysex_send = gmss
+// Custom return values for functions that need specific stub behavior
+const CUSTOM_STUBS: Record<string, string> = {
+  // Functions returning numbers
+  glr: "return 0",
+  glg: "return 0",
+  glb: "return 0",
+  glag: "return 0",
+  gpn: "return 0",
+  gpp: "return 0",
+  gpc: "return 0",
+  gts: "return 0",
+  gmx: "return 0",
+  gmy: "return 0",
+  gmr: "return 0",
+  ghwcfg: "return 0",
+  gvmaj: "return 0",
+  gvmin: "return 0",
+  gvpat: "return 0",
+  gec: "return 16",
+  grnd: "return 0",
+  gsc: "return 0",
+  // Functions returning strings
+  gen: 'return ""',
+  ggen: 'return ""',
+  gfcat: 'return ""',
+  gsg: 'return ""',
+  // Functions returning tables
+  gfls: "return {}",
+  // Functions returning multiple values
+  gpcg: "return 0,0,0",
+  grcg: "return 0,0",
+  // Functions with parameters that pass through
+  gmaps: "return v",
+  glim: "return v",
+  sgn: "return v >= 0 and 1 or -1",
+};
 
-  -- HID functions
-  function gks() end           -- keyboard_send
-  function gmms() end          -- mouse_move_send
-  function gmbs() end          -- mouse_button_send
-  function ggms() end          -- gamepad_move_send
-  function ggbs() end          -- gamepad_button_send
-  keyboard_send = gks
-  mouse_move_send = gmms
-  mouse_button_send = gmbs
-  gamepad_move_send = ggms
-  gamepad_button_send = ggbs
+// Function types from grid-protocol that represent Lua API functions
+const GRID_FUNCTION_TYPES = new Set(["global", "encoder", "button", "potmeter", "endless", "lcd"]);
 
-  -- Page functions
-  function gpn() return 0 end  -- page_next
-  function gpp() return 0 end  -- page_previous
-  function gpc() return 0 end  -- page_current
-  function gpl() end           -- page_load
-  page_next = gpn
-  page_previous = gpp
-  page_current = gpc
-  page_load = gpl
+/**
+ * Iterate over grid-protocol Lua function definitions.
+ * Calls callback for each function with its short and human names.
+ */
+function forEachGridFunction(callback: (shortName: string, humanName: string | undefined) => void): void {
+  const luaProps = grid.getProperty("LUA") as Record<string, { short?: string; human?: string; type?: string }>;
+  if (!luaProps) return;
 
-  -- Timer functions
-  function gtt() end           -- timer_start
-  function gtp() end           -- timer_stop
-  function gts() return 0 end  -- timer_source
-  timer_start = gtt
-  timer_stop = gtp
-  timer_source = gts
+  for (const key in luaProps) {
+    const entry = luaProps[key];
+    if (GRID_FUNCTION_TYPES.has(entry.type ?? "") && entry.short) {
+      callback(entry.short, entry.human);
+    }
+  }
+}
 
-  -- Event functions
-  function get() end           -- event_trigger
-  event_trigger = get
+/**
+ * Generate Lua API stubs from grid-protocol definitions.
+ * Creates function stubs and human-readable aliases.
+ */
+function generateGridApiStubs(): string {
+  const stubs: string[] = [];
+  const aliases: string[] = [];
 
-  -- MIDI RX control
-  function mre() end           -- midirx_enabled
-  function mrs() end           -- midirx_sync
-  midirx_enabled = mre
-  midirx_sync = mrs
+  forEachGridFunction((shortName, humanName) => {
+    const customBody = CUSTOM_STUBS[shortName];
 
-  -- Element name functions
-  function gen() return "" end -- element_name
-  function gsen() end          -- element_name_set
-  function gens() end          -- element_name_send
-  function ggen() return "" end -- element_name_get
-  element_name = gen
-  element_name_set = gsen
-  element_name_send = gens
-  element_name_get = ggen
+    // Generate function stub with custom return value if defined
+    if (customBody?.includes("return v")) {
+      stubs.push(`function ${shortName}(v) ${customBody} end`);
+    } else if (customBody) {
+      stubs.push(`function ${shortName}() ${customBody} end`);
+    } else {
+      stubs.push(`function ${shortName}() end`);
+    }
 
-  -- Communication functions
-  function gwss() end          -- websocket_send
-  function gps() end           -- package_send
-  function gis() end           -- immediate_send
-  websocket_send = gwss
-  package_send = gps
-  immediate_send = gis
+    // Generate human-readable alias if available
+    if (humanName && humanName !== shortName) {
+      aliases.push(`${humanName} = ${shortName}`);
+    }
+  });
 
-  -- Module info functions
-  function gmx() return 0 end  -- module_position_x
-  function gmy() return 0 end  -- module_position_y
-  function gmr() return 0 end  -- module_rotation
-  function ghwcfg() return 0 end -- hardware_configuration
-  function gvmaj() return 0 end -- version_major
-  function gvmin() return 0 end -- version_minor
-  function gvpat() return 0 end -- version_patch
-  function gec() return 16 end -- element_count
-  module_position_x = gmx
-  module_position_y = gmy
-  module_rotation = gmr
-  hardware_configuration = ghwcfg
-  version_major = gvmaj
-  version_minor = gvmin
-  version_patch = gvpat
-  element_count = gec
+  if (stubs.length === 0) {
+    return "-- No LUA properties found in grid-protocol\nfunction print() end";
+  }
 
-  -- Filesystem functions
-  function gfls() return {} end -- readdir
-  function gfcat() return "" end -- readfile
-  readdir = gfls
-  readfile = gfcat
+  return [
+    "-- Grid API stubs (auto-generated from grid-protocol)",
+    ...stubs,
+    "",
+    "-- Human-readable aliases",
+    ...aliases,
+    "",
+    "-- Suppress print",
+    "function print() end",
+  ].join("\n");
+}
 
-  -- Calibration functions
-  function gcr() end           -- calibration_reset
-  function gpcg() return 0,0,0 end -- potmeter_calibration_get
-  function gpcs() end          -- potmeter_center_set
-  function gpds() end          -- potmeter_detent_set
-  function grcg() return 0,0 end -- range_calibration_get
-  function grcs() end          -- range_calibration_set
-  calibration_reset = gcr
-  potmeter_calibration_get = gpcg
-  potmeter_center_set = gpcs
-  potmeter_detent_set = gpds
-  range_calibration_get = grcg
-  range_calibration_set = grcs
+// Cache the generated stubs at module load
+const GRID_API_STUBS = generateGridApiStubs();
 
-  -- Utility functions
-  function grnd() return 0 end -- random8
-  function gmaps(v) return v end -- map_saturate
-  function glim(v) return v end -- limit
-  function sgn(v) return v >= 0 and 1 or -1 end -- sign
-  function gsc() return 0 end  -- segment_calculate
-  function gsg() return "" end -- string_get
-  random8 = grnd
-  map_saturate = gmaps
-  limit = glim
-  sign = sgn
-  segment_calculate = gsc
-  string_get = gsg
-
-  -- LCD/GUI functions
-  function glsb() end          -- lcd_set_backlight
-  function ggdsw() end         -- gui_draw_swap
-  function ggdpx() end         -- gui_draw_pixel
-  function ggdl() end          -- gui_draw_line
-  function ggdr() end          -- gui_draw_rectangle
-  function ggdrf() end         -- gui_draw_rectangle_filled
-  function ggdrr() end         -- gui_draw_rectangle_rounded
-  function ggdrrf() end        -- gui_draw_rectangle_rounded_filled
-  function ggdpo() end         -- gui_draw_polygon
-  function ggdpof() end        -- gui_draw_polygon_filled
-  function ggdt() end          -- gui_draw_text
-  function ggdft() end         -- gui_draw_fasttext
-  function ggdaf() end         -- gui_draw_area_filled
-  function ggdd() end          -- gui_draw_demo
-  lcd_set_backlight = glsb
-  gui_draw_swap = ggdsw
-  gui_draw_pixel = ggdpx
-  gui_draw_line = ggdl
-  gui_draw_rectangle = ggdr
-  gui_draw_rectangle_filled = ggdrf
-  gui_draw_rectangle_rounded = ggdrr
-  gui_draw_rectangle_rounded_filled = ggdrrf
-  gui_draw_polygon = ggdpo
-  gui_draw_polygon_filled = ggdpof
-  gui_draw_text = ggdt
-  gui_draw_fasttext = ggdft
-  gui_draw_area_filled = ggdaf
-  gui_draw_demo = ggdd
-
-  -- Suppress print
-  function print() end
-`;
-
-// Lua built-in globals
-const LUA_BUILTINS = [
-  "_G", "_VERSION", "assert", "collectgarbage", "dofile", "error", "getmetatable",
-  "ipairs", "load", "loadfile", "next", "pairs", "pcall", "print", "rawequal",
-  "rawget", "rawlen", "rawset", "require", "select", "setmetatable", "tonumber",
-  "tostring", "type", "warn", "xpcall", "coroutine", "debug", "io", "math",
-  "os", "package", "string", "table", "utf8", "js",
-];
+// Lua built-in globals (as Set for O(1) membership testing)
+const LUA_BUILTINS = new Set([
+  "_G",
+  "_VERSION",
+  "assert",
+  "collectgarbage",
+  "dofile",
+  "error",
+  "getmetatable",
+  "ipairs",
+  "load",
+  "loadfile",
+  "next",
+  "pairs",
+  "pcall",
+  "print",
+  "rawequal",
+  "rawget",
+  "rawlen",
+  "rawset",
+  "require",
+  "select",
+  "setmetatable",
+  "tonumber",
+  "tostring",
+  "type",
+  "warn",
+  "xpcall",
+  "coroutine",
+  "debug",
+  "io",
+  "math",
+  "os",
+  "package",
+  "string",
+  "table",
+  "utf8",
+  "js",
+]);
 
 // Globals injected by the loader
 const INJECTED_GLOBALS = ["grid", "__grid_config", "__get_func_info", "element"];
@@ -395,9 +347,11 @@ function extractStubGlobals(stubs: string): string[] {
   for (const match of stubs.matchAll(/function\s+(\w+)\s*\(/g)) {
     names.push(match[1]);
   }
-  // Match global assignments: name =
-  for (const match of stubs.matchAll(/^  (\w+)\s*=/gm)) {
-    names.push(match[1]);
+  // Match global assignments: name = (with any leading whitespace)
+  for (const match of stubs.matchAll(/^\s*(\w+)\s*=/gm)) {
+    if (!names.includes(match[1])) {
+      names.push(match[1]);
+    }
   }
   return names;
 }
@@ -408,17 +362,10 @@ function extractStubGlobals(stubs: string): string[] {
  */
 function extractProtocolFunctions(): string[] {
   const names: string[] = [];
-  const luaProps = grid.getProperty("LUA") as Record<string, { short?: string; human?: string; type?: string }>;
-  if (!luaProps) return names;
-
-  const functionTypes = ["global", "encoder", "button", "potmeter", "endless", "lcd"];
-  for (const key in luaProps) {
-    const entry = luaProps[key];
-    if (functionTypes.includes(entry.type ?? "")) {
-      if (entry.short) names.push(entry.short);
-      if (entry.human) names.push(entry.human);
-    }
-  }
+  forEachGridFunction((shortName, humanName) => {
+    names.push(shortName);
+    if (humanName) names.push(humanName);
+  });
   return names;
 }
 
@@ -439,16 +386,37 @@ const ALLOWED_CALLBACKS = new Set(["midirx_cb", "sysex_cb"]);
 
 // Lua keywords that cannot be used as identifiers
 const LUA_KEYWORDS = new Set([
-  "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
-  "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then",
-  "true", "until", "while",
+  "and",
+  "break",
+  "do",
+  "else",
+  "elseif",
+  "end",
+  "false",
+  "for",
+  "function",
+  "goto",
+  "if",
+  "in",
+  "local",
+  "nil",
+  "not",
+  "or",
+  "repeat",
+  "return",
+  "then",
+  "true",
+  "until",
+  "while",
 ]);
 
 // Reserved identifiers that should not be renamed
 const RESERVED_IDENTIFIERS = new Set([
   "self", // Grid implicit self parameter
-  "_ENV", "_G", // Lua environment
-  "midirx_cb", "sysex_cb", // Grid callback function names (firmware expects these)
+  "_ENV",
+  "_G", // Lua environment
+  "midirx_cb",
+  "sysex_cb", // Grid callback function names (firmware expects these)
 ]);
 
 /**
@@ -456,22 +424,16 @@ const RESERVED_IDENTIFIERS = new Set([
  */
 class NameGenerator {
   private index = 0;
-  private used = new Set<string>();
 
-  constructor(reserved: Iterable<string> = []) {
-    for (const name of reserved) {
-      this.used.add(name);
-    }
-  }
+  constructor(private reserved: Set<string>) {}
 
   next(): string {
-    while (true) {
-      const name = this.indexToName(this.index++);
-      if (!this.used.has(name) && !LUA_KEYWORDS.has(name)) {
-        this.used.add(name);
-        return name;
-      }
-    }
+    let name: string;
+    do {
+      name = this.indexToName(this.index++);
+    } while (this.reserved.has(name) || LUA_KEYWORDS.has(name));
+    this.reserved.add(name);
+    return name;
   }
 
   private indexToName(i: number): string {
@@ -632,15 +594,17 @@ function renameScript(source: string, globalRenames: Map<string, string>): strin
   // Build local renames (per-script)
   // Reserve: global rename targets, reserved identifiers, and kept names
   const localRenames = new Map<string, string>();
-  const nameGen = new NameGenerator([
-    ...globalRenames.values(),
-    ...RESERVED_IDENTIFIERS,
-    ...keptNames,
-  ]);
+  const nameGen = new NameGenerator(new Set([...globalRenames.values(), ...RESERVED_IDENTIFIERS, ...keptNames]));
 
   // Find local declarations that need renaming
   for (const id of identifiers) {
-    if (id.isLocal && id.isDeclaration && shouldRename(id.name) && needsRenaming(id.name) && !localRenames.has(id.name)) {
+    if (
+      id.isLocal &&
+      id.isDeclaration &&
+      shouldRename(id.name) &&
+      needsRenaming(id.name) &&
+      !localRenames.has(id.name)
+    ) {
       localRenames.set(id.name, nameGen.next());
     }
   }
@@ -649,7 +613,7 @@ function renameScript(source: string, globalRenames: Map<string, string>): strin
   const allRenames = new Map([...globalRenames, ...localRenames]);
 
   // Filter identifiers to only those that should be renamed
-  const toRename = identifiers.filter(id => {
+  const toRename = identifiers.filter((id) => {
     if (!shouldRename(id.name)) return false;
     if (!needsRenaming(id.name)) return false;
     if (id.isLocal) return localRenames.has(id.name);
@@ -660,39 +624,24 @@ function renameScript(source: string, globalRenames: Map<string, string>): strin
 }
 
 /**
- * Collect all user-defined globals that need renaming from multiple scripts.
+ * Analyze identifiers across multiple scripts in a single pass.
+ * Returns globals that need renaming and names that will be kept.
  */
-function collectGlobals(scripts: string[]): Set<string> {
+function analyzeIdentifiers(scripts: string[]): { globals: Set<string>; keptNames: Set<string> } {
   const globals = new Set<string>();
+  const keptNames = new Set<string>();
 
   for (const source of scripts) {
-    const identifiers = collectIdentifiers(source);
-    for (const id of identifiers) {
-      if (!id.isLocal && shouldRename(id.name) && needsRenaming(id.name)) {
+    for (const id of collectIdentifiers(source)) {
+      if (!shouldRename(id.name) || !needsRenaming(id.name)) {
+        keptNames.add(id.name);
+      } else if (!id.isLocal) {
         globals.add(id.name);
       }
     }
   }
 
-  return globals;
-}
-
-/**
- * Collect all identifier names that will be kept (not renamed) across all scripts.
- */
-function collectKeptNames(scripts: string[]): Set<string> {
-  const kept = new Set<string>();
-
-  for (const source of scripts) {
-    const identifiers = collectIdentifiers(source);
-    for (const id of identifiers) {
-      if (!shouldRename(id.name) || !needsRenaming(id.name)) {
-        kept.add(id.name);
-      }
-    }
-  }
-
-  return kept;
+  return { globals, keptNames };
 }
 
 /**
@@ -701,19 +650,18 @@ function collectKeptNames(scripts: string[]): Set<string> {
  * @returns Array of renamed sources
  */
 export function renameIdentifiers(scripts: string[]): string[] {
-  // First pass: collect globals that need renaming and names that are kept
-  const globals = collectGlobals(scripts);
-  const keptNames = collectKeptNames(scripts);
+  // Single pass: collect globals and kept names
+  const { globals, keptNames } = analyzeIdentifiers(scripts);
 
   // Create consistent global renames, avoiding kept names
   const globalRenames = new Map<string, string>();
-  const nameGen = new NameGenerator([...RESERVED_IDENTIFIERS, ...keptNames]);
+  const nameGen = new NameGenerator(new Set([...RESERVED_IDENTIFIERS, ...keptNames]));
   for (const name of globals) {
     globalRenames.set(name, nameGen.next());
   }
 
   // Second pass: rename each script
-  return scripts.map(source => renameScript(source, globalRenames));
+  return scripts.map((source) => renameScript(source, globalRenames));
 }
 
 /**
@@ -781,12 +729,7 @@ function globalsToLua(globals: Map<string, string>): string {
 /**
  * Extract a function's body with upvalue inlining.
  */
-function extractFunction(
-  L: any,
-  source: string,
-  fnStackIndex: number,
-  functions: FunctionNode[]
-): string | null {
+function extractFunction(L: any, source: string, fnStackIndex: number, functions: FunctionNode[]): string | null {
   // Convert to absolute index before any stack modifications
   const absIdx = fnStackIndex < 0 ? lua.lua_gettop(L) + fnStackIndex + 1 : fnStackIndex;
 
@@ -815,66 +758,210 @@ function extractFunction(
   return body || null;
 }
 
+// =============================================================================
+// Lua VM Helpers
+// =============================================================================
+
+// Lua state type alias for documentation
+type LuaState = ReturnType<typeof lauxlib.luaL_newstate>;
+
+/**
+ * Get a string field from the table at the top of the stack.
+ */
+function getStringField(L: LuaState, field: string, defaultVal: string = ""): string {
+  lua.lua_getfield(L, -1, fengari.to_luastring(field));
+  const value = lua.lua_tojsstring(L, -1) || defaultVal;
+  lua.lua_pop(L, 1);
+  return value;
+}
+
+/**
+ * Get an integer from array index in the table at the top of the stack.
+ */
+function getArrayInt(L: LuaState, index: number, defaultVal: number = 0): number {
+  lua.lua_rawgeti(L, -1, index);
+  const value = lua.lua_isnil(L, -1) ? defaultVal : lua.lua_tointeger(L, -1);
+  lua.lua_pop(L, 1);
+  return value;
+}
+
+const LUA_SETUP_CODE = `
+  ${GRID_API_STUBS}
+
+  -- Stub element array
+  element = setmetatable({}, { __index = function() return {} end })
+
+  -- Grid module
+  local grid = {
+    config = function(tbl)
+      __grid_config = tbl
+      return tbl
+    end
+  }
+
+  -- Custom require
+  local original_require = require
+  function require(name)
+    if name == "grid" then
+      return grid
+    end
+    return original_require(name)
+  end
+
+  -- Helper to get function line info
+  function __get_func_info(fn)
+    local info = debug.getinfo(fn, "S")
+    if info then
+      return { linedefined = info.linedefined, lastlinedefined = info.lastlinedefined }
+    end
+    return nil
+  end
+`;
+
+/**
+ * Create and initialize a new Lua VM with standard libraries.
+ */
+function createLuaVM(): LuaState {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  interop.luaopen_js(L);
+  return L;
+}
+
+/**
+ * Execute Lua code and throw on error.
+ */
+function executeLua(L: LuaState, code: string, context: string): void {
+  const result = lauxlib.luaL_dostring(L, fengari.to_luastring(code));
+  if (result !== lua.LUA_OK) {
+    const err = lua.lua_tojsstring(L, -1);
+    throw new Error(`${context}: ${err}`);
+  }
+}
+
+/**
+ * Extract config metadata (name, type, version) from Lua config table.
+ * Assumes config table is at top of stack.
+ */
+function extractMetadata(
+  L: LuaState,
+  filePath: string
+): { name: string; type: string; version: { major: string; minor: string; patch: string } } {
+  const name = getStringField(L, "name", path.basename(filePath, ".lua"));
+  const type = getStringField(L, "type", "EN16");
+
+  lua.lua_getfield(L, -1, fengari.to_luastring("version"));
+  let version = { major: "1", minor: "0", patch: "0" };
+  if (lua.lua_istable(L, -1)) {
+    version.major = String(getArrayInt(L, 1, 1));
+    version.minor = String(getArrayInt(L, 2, 0));
+    version.patch = String(getArrayInt(L, 3, 0));
+  }
+  lua.lua_pop(L, 1);
+
+  return { name, type, version };
+}
+
+/**
+ * Extract system element events from root globals and top-level handlers.
+ * Assumes config table is at top of stack.
+ */
+function extractSystemEvents(L: LuaState, source: string, functions: FunctionNode[]): EventConfig[] {
+  const systemEvents: EventConfig[] = [];
+
+  // Extract new globals defined at script root (becomes system init)
+  const newGlobals = extractNewGlobals(L, source, functions);
+  const rootGlobals = globalsToLua(newGlobals);
+
+  if (rootGlobals) {
+    systemEvents.push({ event: 0, config: rootGlobals });
+  }
+
+  // Extract top-level system event handlers (utility, timer)
+  for (const eventName of SYSTEM_EVENT_NAMES) {
+    lua.lua_getfield(L, -1, fengari.to_luastring(eventName));
+    if (lua.lua_isfunction(L, -1)) {
+      const eventId = EVENT_IDS[eventName];
+      if (eventId !== undefined) {
+        const body = extractFunction(L, source, -1, functions);
+        if (body) {
+          systemEvents.push({ event: eventId, config: body });
+        }
+      }
+    }
+    lua.lua_pop(L, 1);
+  }
+
+  return systemEvents;
+}
+
+/**
+ * Extract element event handlers from config table.
+ * Assumes config table is at top of stack.
+ */
+function extractElementConfigs(
+  L: LuaState,
+  source: string,
+  functions: FunctionNode[]
+): Array<{ controlElementNumber: number; events: EventConfig[] }> {
+  const elements: Array<{ controlElementNumber: number; events: EventConfig[] }> = [];
+
+  lua.lua_pushnil(L);
+  while (lua.lua_next(L, -2) !== 0) {
+    if (lua.lua_isnumber(L, -2) && lua.lua_istable(L, -1)) {
+      const elementNum = lua.lua_tointeger(L, -2);
+
+      // Skip system element (handled via extractSystemEvents)
+      if (elementNum === SYSTEM_ELEMENT) {
+        lua.lua_pop(L, 1);
+        continue;
+      }
+
+      const events: EventConfig[] = [];
+
+      lua.lua_pushnil(L);
+      while (lua.lua_next(L, -2) !== 0) {
+        if (lua.lua_isstring(L, -2) && lua.lua_isfunction(L, -1)) {
+          const eventName = lua.lua_tojsstring(L, -2);
+          const eventId = EVENT_IDS[eventName];
+
+          if (eventId !== undefined) {
+            const body = extractFunction(L, source, -1, functions);
+            if (body) {
+              events.push({ event: eventId, config: body });
+            }
+          }
+        }
+        lua.lua_pop(L, 1);
+      }
+
+      if (events.length > 0) {
+        events.sort((a, b) => a.event - b.event);
+        elements.push({ controlElementNumber: elementNum, events });
+      }
+    }
+    lua.lua_pop(L, 1);
+  }
+
+  return elements;
+}
+
+// =============================================================================
+// Main Config Loader
+// =============================================================================
+
 /**
  * Load and parse a Lua configuration file using fengari.
  */
 export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
   const source = fs.readFileSync(filePath, "utf-8");
-
-  // Parse AST to get function locations
   const functions = parseFunctions(source);
-
-  const L = lauxlib.luaL_newstate();
-  lualib.luaL_openlibs(L);
-  interop.luaopen_js(L);
+  const L = createLuaVM();
 
   try {
-    // Set up the grid module, API stubs, and execute config
-    const setupCode = `
-      ${GRID_API_STUBS}
-
-      -- Stub element array
-      element = setmetatable({}, { __index = function() return {} end })
-
-      -- Grid module
-      local grid = {
-        config = function(tbl)
-          __grid_config = tbl
-          return tbl
-        end
-      }
-
-      -- Custom require
-      local original_require = require
-      function require(name)
-        if name == "grid" then
-          return grid
-        end
-        return original_require(name)
-      end
-
-      -- Helper to get function line info
-      function __get_func_info(fn)
-        local info = debug.getinfo(fn, "S")
-        if info then
-          return { linedefined = info.linedefined, lastlinedefined = info.lastlinedefined }
-        end
-        return nil
-      end
-    `;
-
-    let result = lauxlib.luaL_dostring(L, fengari.to_luastring(setupCode));
-    if (result !== lua.LUA_OK) {
-      const err = lua.lua_tojsstring(L, -1);
-      throw new Error(`Setup failed: ${err}`);
-    }
-
-    // Execute the config file
-    result = lauxlib.luaL_dostring(L, fengari.to_luastring(source));
-    if (result !== lua.LUA_OK) {
-      const err = lua.lua_tojsstring(L, -1);
-      throw new Error(`Config execution failed: ${err}`);
-    }
+    // Initialize environment and execute config
+    executeLua(L, LUA_SETUP_CODE, "Setup failed");
+    executeLua(L, source, "Config execution failed");
 
     // Get the config table
     lua.lua_getglobal(L, fengari.to_luastring("__grid_config"));
@@ -882,122 +969,25 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
       throw new Error("Config file must call grid.config()");
     }
 
-    // Extract config metadata
-    lua.lua_getfield(L, -1, fengari.to_luastring("name"));
-    const name = lua.lua_tojsstring(L, -1) || path.basename(filePath, ".lua");
-    lua.lua_pop(L, 1);
+    // Extract all components
+    const { name, type, version } = extractMetadata(L, filePath);
+    const systemEvents = extractSystemEvents(L, source, functions);
+    const elements = extractElementConfigs(L, source, functions);
 
-    lua.lua_getfield(L, -1, fengari.to_luastring("type"));
-    const type = lua.lua_tojsstring(L, -1) || "EN16";
-    lua.lua_pop(L, 1);
+    // Build config object
+    const config: ConfigFile = { name, type, version, configs: [] };
 
-    lua.lua_getfield(L, -1, fengari.to_luastring("version"));
-    let version = { major: "1", minor: "0", patch: "0" };
-    if (lua.lua_istable(L, -1)) {
-      lua.lua_rawgeti(L, -1, 1);
-      version.major = String(lua.lua_tointeger(L, -1) || 1);
-      lua.lua_pop(L, 1);
-      lua.lua_rawgeti(L, -1, 2);
-      version.minor = String(lua.lua_tointeger(L, -1) || 0);
-      lua.lua_pop(L, 1);
-      lua.lua_rawgeti(L, -1, 3);
-      version.patch = String(lua.lua_tointeger(L, -1) || 0);
-      lua.lua_pop(L, 1);
-    }
-    lua.lua_pop(L, 1);
-
-    const config: ConfigFile = {
-      name,
-      type,
-      version,
-      configs: [],
-    };
-
-    // Extract system element (255) from top-level handlers
-    const systemEvents: EventConfig[] = [];
-
-    // Extract new globals defined at script root (becomes system init)
-    const newGlobals = extractNewGlobals(L, source, functions);
-    const rootGlobals = globalsToLua(newGlobals);
-
-    // Create system init from root globals
-    if (rootGlobals) {
-      systemEvents.push({ event: 0, config: rootGlobals });
-    }
-
-    // Extract top-level system event handlers (utility, timer)
-    for (const eventName of SYSTEM_EVENT_NAMES) {
-      lua.lua_getfield(L, -1, fengari.to_luastring(eventName));
-      if (lua.lua_isfunction(L, -1)) {
-        const eventId = EVENT_IDS[eventName];
-        if (eventId !== undefined) {
-          const body = extractFunction(L, source, -1, functions);
-          if (body) {
-            systemEvents.push({ event: eventId, config: body });
-          }
-        }
-      }
-      lua.lua_pop(L, 1);
-    }
-
-    // Add system element if we have any system events
+    // Add system element if we have system events
     if (systemEvents.length > 0) {
-      systemEvents.sort((a, b) => (a.event as number) - (b.event as number));
-      config.configs.push({
-        controlElementNumber: 255,
-        events: systemEvents,
-      });
+      systemEvents.sort((a, b) => a.event - b.event);
+      config.configs.push({ controlElementNumber: SYSTEM_ELEMENT, events: systemEvents });
     }
 
-    // Iterate over numeric keys (regular elements)
-    lua.lua_pushnil(L);
-    while (lua.lua_next(L, -2) !== 0) {
-      // Key is at -2, value is at -1
-      if (lua.lua_isnumber(L, -2) && lua.lua_istable(L, -1)) {
-        const elementNum = lua.lua_tointeger(L, -2);
-
-        // Skip if this is element 255 (handled above via top-level)
-        if (elementNum === 255) {
-          lua.lua_pop(L, 1);
-          continue;
-        }
-
-        const events: EventConfig[] = [];
-
-        // Iterate over event handlers in this element
-        lua.lua_pushnil(L);
-        while (lua.lua_next(L, -2) !== 0) {
-          if (lua.lua_isstring(L, -2) && lua.lua_isfunction(L, -1)) {
-            const eventName = lua.lua_tojsstring(L, -2);
-            const eventId = EVENT_IDS[eventName];
-
-            if (eventId !== undefined) {
-              const body = extractFunction(L, source, -1, functions);
-              if (body) {
-                events.push({ event: eventId, config: body });
-              }
-            }
-          }
-          lua.lua_pop(L, 1); // Pop value, keep key
-        }
-
-        if (events.length > 0) {
-          events.sort((a, b) => (a.event as number) - (b.event as number));
-          config.configs.push({
-            controlElementNumber: elementNum,
-            events,
-          });
-        }
-      }
-      lua.lua_pop(L, 1); // Pop value, keep key
-    }
+    // Add element configs
+    config.configs.push(...elements);
 
     // Sort elements (system element 255 last)
-    config.configs.sort((a, b) => {
-      if (a.controlElementNumber === 255) return 1;
-      if (b.controlElementNumber === 255) return -1;
-      return a.controlElementNumber - b.controlElementNumber;
-    });
+    config.configs = sortElements(config.configs);
 
     return config;
   } finally {

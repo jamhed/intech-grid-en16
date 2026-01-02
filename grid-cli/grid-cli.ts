@@ -4,6 +4,25 @@ import { program } from "commander";
 import * as fs from "fs";
 import * as path from "path";
 import { loadLuaConfig, renameIdentifiers } from "./lua-loader.js";
+import {
+  SYSTEM_ELEMENT,
+  EVENT_NAMES,
+  DEVICE_CONFIG,
+  ConfigFile,
+  EventConfig,
+  wrapScript,
+  unwrapScript,
+  validateActionLength,
+  countEvents,
+  parseEventType,
+  validatePage,
+  matchesUsbFilter,
+  sortElements,
+  renderProgress,
+  getErrorMessage,
+  forEachEvent,
+  mapEvents,
+} from "./lib.js";
 
 // Dynamically import grid-protocol to work around ESM issues
 const gridProtocol = await import("@intechstudio/grid-protocol");
@@ -14,8 +33,9 @@ const { grid, GridScript } = gridProtocol;
 // =============================================================================
 
 const LF = 0x0a;
-const SYSTEM_ELEMENT = 255;
-const MAX_ACTION_LENGTH = 909;
+const SERIAL_BAUD_RATE = 2000000;
+const DEFAULT_TIMEOUT_MS = 500;
+const DEFAULT_RETRIES = 2;
 
 // Cache protocol constants at module level
 const PROTOCOL_CONST = {
@@ -24,58 +44,6 @@ const PROTOCOL_CONST = {
 } as const;
 
 const VERSION = grid.getProperty("VERSION");
-
-const USB_FILTERS = [
-  { vendorId: "03eb", productId: "ecac" }, // D51
-  { vendorId: "03eb", productId: "ecad" }, // D51 alt
-  { vendorId: "303a", productId: "8123" }, // ESP32
-] as const;
-
-const EVENT_NAMES: Record<number, string> = {
-  0: "init",
-  1: "potmeter",
-  2: "encoder",
-  3: "button",
-  4: "utility",
-  5: "midirx",
-  6: "timer",
-  7: "endless",
-  8: "draw",
-};
-
-// Device configurations: element counts and relevant events per element type
-const DEVICE_CONFIG: Record<string, { elements: number[]; events: number[]; systemEvents: number[] }> = {
-  EN16: { elements: [...Array(16).keys(), SYSTEM_ELEMENT], events: [0, 2, 3, 6], systemEvents: [0, 4, 5, 6] },
-  PO16: { elements: [...Array(16).keys(), SYSTEM_ELEMENT], events: [0, 1, 3, 6], systemEvents: [0, 4, 5, 6] },
-  BU16: { elements: [...Array(16).keys(), SYSTEM_ELEMENT], events: [0, 3, 6], systemEvents: [0, 4, 5, 6] },
-  EF44: { elements: [...Array(16).keys(), SYSTEM_ELEMENT], events: [0, 2, 3, 7, 6], systemEvents: [0, 4, 5, 6] },
-  PBF4: { elements: [...Array(8).keys(), SYSTEM_ELEMENT], events: [0, 1, 3, 6], systemEvents: [0, 4, 5, 6] },
-  TEK2: { elements: [...Array(8).keys(), SYSTEM_ELEMENT], events: [0, 2, 3, 6], systemEvents: [0, 4, 5, 6] },
-  PB44: { elements: [...Array(8).keys(), SYSTEM_ELEMENT], events: [0, 1, 3, 6], systemEvents: [0, 4, 5, 6] },
-};
-
-// =============================================================================
-// Types
-// =============================================================================
-
-interface ConfigFile {
-  id?: string;
-  name: string;
-  type: string;
-  version: { major: string; minor: string; patch: string };
-  configType?: string;
-  configs: ElementConfig[];
-}
-
-interface ElementConfig {
-  controlElementNumber: number;
-  events: EventConfig[];
-}
-
-interface EventConfig {
-  event: number | string;
-  config: string;
-}
 
 interface DecodedFrame {
   class_name: string;
@@ -192,33 +160,6 @@ function hasAcknowledge(data: Buffer): boolean {
 }
 
 // =============================================================================
-// Script Helpers
-// =============================================================================
-
-function wrapScript(script: string): string {
-  if (!script || script.trim() === "") return "";
-  if (script.startsWith("<?lua")) return script;
-  return `<?lua ${script} ?>`;
-}
-
-function unwrapScript(script: string): string {
-  if (!script) return "";
-  script = script.replace(/\0+$/, "").trim();
-  const match = script.match(/^<\?lua\s+(.*?)\s+\?>$/s);
-  return match ? match[1] : script;
-}
-
-function validateActionLength(script: string, elementNum: number, eventType: number): void {
-  if (script.length > MAX_ACTION_LENGTH) {
-    throw new Error(
-      `Script too long for element ${elementNum}, event ${eventType}: ` +
-        `${script.length}/${MAX_ACTION_LENGTH} characters. ` +
-        `Reduce by ${script.length - MAX_ACTION_LENGTH} characters.`
-    );
-  }
-}
-
-// =============================================================================
 // Serial Port Helpers
 // =============================================================================
 
@@ -228,14 +169,9 @@ async function findDevice(manualPort?: string): Promise<string> {
   const ports = await SerialPort.list();
 
   for (const port of ports) {
-    const vid = port.vendorId?.toLowerCase();
-    const pid = port.productId?.toLowerCase();
-
-    for (const filter of USB_FILTERS) {
-      if (vid === filter.vendorId && pid === filter.productId) {
-        console.log(`Found Grid device: ${port.path} (VID: ${vid}, PID: ${pid})`);
-        return port.path;
-      }
+    if (matchesUsbFilter(port.vendorId, port.productId)) {
+      console.log(`Found Grid device: ${port.path} (VID: ${port.vendorId}, PID: ${port.productId})`);
+      return port.path;
     }
   }
 
@@ -250,7 +186,7 @@ async function findDevice(manualPort?: string): Promise<string> {
 async function openPort(portPath: string): Promise<SerialPort> {
   const port = new SerialPort({
     path: portPath,
-    baudRate: 2000000,
+    baudRate: SERIAL_BAUD_RATE,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -329,7 +265,7 @@ async function sendAndWaitReport(
   packet: Packet,
   options: Partial<SendOptions> = {}
 ): Promise<string> {
-  const { timeout = 500, retries = 2, debug = false } = options;
+  const { timeout = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES, debug = false } = options;
   const result = await sendAndWait(port, packet, parseConfigReport, { timeout, retries, debug });
   return result.actionString;
 }
@@ -337,20 +273,6 @@ async function sendAndWaitReport(
 // =============================================================================
 // Config Operations
 // =============================================================================
-
-function countEvents(config: ConfigFile): number {
-  return config.configs.reduce((count, element) => {
-    return count + element.events.filter((e) => e.config?.trim()).length;
-  }, 0);
-}
-
-function parseEventType(event: number | string): number {
-  const parsed = typeof event === "string" ? parseInt(event, 10) : event;
-  if (isNaN(parsed) || parsed < 0 || parsed > 8) {
-    throw new Error(`Invalid event type: ${event}`);
-  }
-  return parsed;
-}
 
 async function uploadConfig(port: SerialPort, config: ConfigFile, pages: number[], verbose: boolean): Promise<void> {
   const totalEvents = countEvents(config) * pages.length;
@@ -378,10 +300,7 @@ async function uploadConfig(port: SerialPort, config: ConfigFile, pages: number[
         try {
           await sendAndWaitAck(port, packet);
           current++;
-
-          const pct = Math.round((current / totalEvents) * 100);
-          const bar = "=".repeat(Math.floor(pct / 5)).padEnd(20, " ");
-          process.stdout.write(`\r[${bar}] ${pct}% | Element ${element.controlElementNumber}, Event ${eventType}`);
+          renderProgress(current, totalEvents, `Element ${element.controlElementNumber}, Event ${eventType}`);
 
           if (verbose) {
             console.log(
@@ -444,7 +363,7 @@ async function downloadConfig(
     });
 
     try {
-      const actionString = await sendAndWaitReport(port, packet, { timeout: 500, retries: 1 });
+      const actionString = await sendAndWaitReport(port, packet, { timeout: DEFAULT_TIMEOUT_MS, retries: 1 });
       const script = unwrapScript(actionString);
 
       if (script) {
@@ -454,7 +373,7 @@ async function downloadConfig(
         elementConfigs.get(elementNum)!.set(eventType, script);
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = getErrorMessage(err);
       failed.push({ element: elementNum, event: eventType, error: errorMsg });
 
       if (verbose) {
@@ -463,9 +382,7 @@ async function downloadConfig(
     }
 
     current++;
-    const pct = Math.round((current / toFetch.length) * 100);
-    const bar = "=".repeat(Math.floor(pct / 5)).padEnd(20, " ");
-    process.stdout.write(`\r[${bar}] ${pct}% | Element ${elementNum}, Event ${EVENT_NAMES[eventType] ?? eventType}`);
+    renderProgress(current, toFetch.length, `Element ${elementNum}, Event ${EVENT_NAMES[eventType] ?? eventType}`);
   }
 
   console.log("\n");
@@ -476,7 +393,7 @@ async function downloadConfig(
     for (const [eventType, script] of events) {
       eventArray.push({ event: eventType, config: script });
     }
-    eventArray.sort((a, b) => (a.event as number) - (b.event as number));
+    eventArray.sort((a, b) => a.event - b.event);
 
     if (eventArray.length > 0) {
       config.configs.push({
@@ -487,13 +404,49 @@ async function downloadConfig(
   }
 
   // Sort elements (system element last)
-  config.configs.sort((a, b) => {
-    if (a.controlElementNumber === SYSTEM_ELEMENT) return 1;
-    if (b.controlElementNumber === SYSTEM_ELEMENT) return -1;
-    return a.controlElementNumber - b.controlElementNumber;
-  });
+  config.configs = sortElements(config.configs);
 
   return { config, failed };
+}
+
+// =============================================================================
+// Config Loading
+// =============================================================================
+
+/**
+ * Load a config file from disk (JSON or Lua format).
+ */
+async function loadConfig(configPath: string): Promise<ConfigFile> {
+  const fullPath = path.resolve(configPath);
+
+  if (!fs.existsSync(fullPath)) {
+    throw new Error(`Config file not found: ${fullPath}`);
+  }
+
+  const ext = path.extname(fullPath).toLowerCase();
+  if (ext === ".lua") {
+    return loadLuaConfig(fullPath);
+  }
+
+  const raw = fs.readFileSync(fullPath, "utf-8");
+  return JSON.parse(raw);
+}
+
+/**
+ * Validate all scripts in a config before uploading.
+ */
+function validateConfig(config: ConfigFile): void {
+  if (!config.configs || !Array.isArray(config.configs)) {
+    throw new Error("Invalid config: missing 'configs' array");
+  }
+
+  forEachEvent(config, (element, event) => {
+    if (event.config?.trim()) {
+      const eventType = parseEventType(event.event);
+      const actionString = wrapScript(event.config);
+      validateActionLength(actionString, element.controlElementNumber, eventType);
+    }
+  });
 }
 
 // =============================================================================
@@ -511,51 +464,16 @@ program
   .option("-v, --verbose", "Show detailed progress")
   .option("-d, --dry-run", "Validate config without uploading")
   .action(async (configPath: string, options) => {
-    const fullPath = path.resolve(configPath);
-
-    if (!fs.existsSync(fullPath)) {
-      console.error(`Config file not found: ${fullPath}`);
-      process.exit(1);
-    }
-
     let config: ConfigFile;
+    let pages: number[];
     try {
-      const ext = path.extname(fullPath).toLowerCase();
-      if (ext === ".lua") {
-        config = await loadLuaConfig(fullPath);
-      } else {
-        const raw = fs.readFileSync(fullPath, "utf-8");
-        config = JSON.parse(raw);
-      }
+      config = await loadConfig(configPath);
+      validateConfig(config);
+      pages = validatePage(options.page);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to parse config file: ${msg}`);
+      console.error(getErrorMessage(err));
       process.exit(1);
     }
-
-    if (!config.configs || !Array.isArray(config.configs)) {
-      console.error("Invalid config: missing 'configs' array");
-      process.exit(1);
-    }
-
-    // Validate all scripts before uploading
-    for (const element of config.configs) {
-      for (const event of element.events) {
-        if (event.config?.trim()) {
-          try {
-            const eventType = parseEventType(event.event);
-            const actionString = wrapScript(event.config);
-            validateActionLength(actionString, element.controlElementNumber, eventType);
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error(`Validation failed: ${msg}`);
-            process.exit(1);
-          }
-        }
-      }
-    }
-
-    const pages = options.page !== undefined ? [options.page] : [0, 1, 2, 3];
 
     console.log("Grid CLI - Upload");
     console.log("=================");
@@ -591,13 +509,8 @@ program
   .option("-r, --rename", "Rename user variables/functions to short names")
   .action(async (inputPath: string, options) => {
     const fullPath = path.resolve(inputPath);
-
-    if (!fs.existsSync(fullPath)) {
-      console.error(`Config file not found: ${fullPath}`);
-      process.exit(1);
-    }
-
     const ext = path.extname(fullPath).toLowerCase();
+
     if (ext !== ".lua") {
       console.error(`Expected .lua file, got: ${ext}`);
       process.exit(1);
@@ -605,36 +518,23 @@ program
 
     let config: ConfigFile;
     try {
-      config = await loadLuaConfig(fullPath);
+      config = await loadConfig(inputPath);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to parse Lua config: ${msg}`);
+      console.error(`Failed to parse Lua config: ${getErrorMessage(err)}`);
       process.exit(1);
     }
 
     // Apply identifier renaming (before minification)
     if (options.rename) {
-      // Collect all scripts
-      const scripts: string[] = [];
-      const scriptMap: Array<{ element: number; event: number; index: number }> = [];
+      const scriptMap = mapEvents(config, (element, event, index) => ({
+        element: element.controlElementNumber,
+        event: event.event,
+        index,
+        script: event.config,
+      }));
 
-      for (const element of config.configs) {
-        for (const event of element.events) {
-          if (event.config) {
-            scriptMap.push({
-              element: element.controlElementNumber,
-              event: event.event,
-              index: scripts.length,
-            });
-            scripts.push(event.config);
-          }
-        }
-      }
+      const renamed = renameIdentifiers(scriptMap.map((s) => s.script));
 
-      // Rename with consistent globals
-      const renamed = renameIdentifiers(scripts);
-
-      // Apply back
       for (const { element, event, index } of scriptMap) {
         const el = config.configs.find((e) => e.controlElementNumber === element);
         const ev = el?.events.find((e) => e.event === event);
@@ -646,13 +546,11 @@ program
 
     // Apply minification by default
     if (options.minify !== false) {
-      for (const element of config.configs) {
-        for (const event of element.events) {
-          if (event.config) {
-            event.config = GridScript.compressScript(event.config);
-          }
+      forEachEvent(config, (_element, event) => {
+        if (event.config) {
+          event.config = GridScript.compressScript(event.config);
         }
-      }
+      });
     }
 
     const json = JSON.stringify(config, null, 2);

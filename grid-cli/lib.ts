@@ -52,7 +52,7 @@ export interface ElementConfig {
 }
 
 export interface EventConfig {
-  event: number | string;
+  event: number;
   config: string;
 }
 
@@ -93,6 +93,10 @@ export function countEvents(config: ConfigFile): number {
   }, 0);
 }
 
+/**
+ * Parse and validate an event type from JSON input.
+ * JSON files may have event types as strings or numbers; this normalizes to number.
+ */
 export function parseEventType(event: number | string): number {
   const parsed = typeof event === "string" ? parseInt(event, 10) : event;
   if (isNaN(parsed) || parsed < 0 || parsed > 8) {
@@ -114,4 +118,81 @@ export function matchesUsbFilter(vendorId: string | undefined, productId: string
   const vid = vendorId.toLowerCase();
   const pid = productId.toLowerCase();
   return USB_FILTERS.some((f) => f.vendorId === vid && f.productId === pid);
+}
+
+// =============================================================================
+// Element Helpers
+// =============================================================================
+
+/**
+ * Sort elements by controlElementNumber, with system element last.
+ */
+export function sortElements(configs: ElementConfig[]): ElementConfig[] {
+  return [...configs].sort((a, b) => {
+    if (a.controlElementNumber === SYSTEM_ELEMENT) return 1;
+    if (b.controlElementNumber === SYSTEM_ELEMENT) return -1;
+    return a.controlElementNumber - b.controlElementNumber;
+  });
+}
+
+// =============================================================================
+// Progress Helpers
+// =============================================================================
+
+/**
+ * Render a progress bar to stdout.
+ */
+export function renderProgress(current: number, total: number, suffix: string): void {
+  const pct = Math.round((current / total) * 100);
+  const bar = "=".repeat(Math.floor(pct / 5)).padEnd(20, " ");
+  process.stdout.write(`\r[${bar}] ${pct}% | ${suffix}`);
+}
+
+// =============================================================================
+// Error Helpers
+// =============================================================================
+
+/**
+ * Extract error message from unknown error type.
+ */
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// =============================================================================
+// Iteration Helpers
+// =============================================================================
+
+/**
+ * Iterate over all events in a config, calling fn for each.
+ */
+export function forEachEvent(
+  config: ConfigFile,
+  fn: (element: ElementConfig, event: EventConfig) => void
+): void {
+  for (const element of config.configs) {
+    for (const event of element.events) {
+      fn(element, event);
+    }
+  }
+}
+
+/**
+ * Map over all events in a config that have non-empty scripts.
+ * Returns array of results from fn calls.
+ */
+export function mapEvents<T>(
+  config: ConfigFile,
+  fn: (element: ElementConfig, event: EventConfig, index: number) => T
+): T[] {
+  const results: T[] = [];
+  let index = 0;
+  for (const element of config.configs) {
+    for (const event of element.events) {
+      if (event.config?.trim()) {
+        results.push(fn(element, event, index++));
+      }
+    }
+  }
+  return results;
 }
