@@ -1,9 +1,9 @@
 def create_mappings(control_surface):
     mappings = {}
 
-    # Device control: first 8 encoders control device parameters
+    # Device: first 8 encoders control device parameters
     mappings["Device"] = dict(
-        parameter_controls="device_encoders",
+        parameter_controls="encoders_raw[0:8]",
     )
 
     # Mixer: track select and arm buttons
@@ -17,7 +17,7 @@ def create_mappings(control_surface):
         clip_launch_buttons="clip_launch_buttons",
     )
 
-    # Target track controls: volume + 3 sends on encoders 12-15
+    # Target track: volume + 3 sends on encoders 12-15
     mappings["Target_Track_Controls"] = dict(
         volume_control="encoders_raw[15]",
         send_a_control="encoders_raw[14]",
@@ -25,7 +25,7 @@ def create_mappings(control_surface):
         send_c_control="encoders_raw[12]",
     )
 
-    # View-based target track following
+    # Enable components (no direct mappings needed)
     mappings["View_Based_Recording"] = dict()
     mappings["Target_Track"] = dict()
 

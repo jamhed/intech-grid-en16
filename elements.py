@@ -47,13 +47,6 @@ class Elements(ElementsBase):
             msg_type=MIDI_CC_TYPE,
         )
 
-        # Device parameter encoders (first 8)
-        self.add_encoder_matrix(
-            [list(range(32, 40))],
-            "Device_Encoders",
-            msg_type=MIDI_CC_TYPE,
-        )
-
         # Track select buttons (Note 32-39)
         self.add_button_matrix(
             [list(range(32, 40))],
