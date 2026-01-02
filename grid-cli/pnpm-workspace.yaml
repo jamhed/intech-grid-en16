@@ -1,1 +1,4 @@
-onlyBuiltDependencies: '@serialport/bindings-cpp'
+packages:
+  - '.'
+onlyBuiltDependencies:
+  - '@serialport/bindings-cpp'

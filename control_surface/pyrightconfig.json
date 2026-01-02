@@ -2,5 +2,7 @@
   "include": ["."],
   "extraPaths": ["../__ext__/AbletonLive12_MIDIRemoteScripts"],
   "pythonVersion": "3.11",
-  "typeCheckingMode": "basic"
+  "typeCheckingMode": "basic",
+  "reportAttributeAccessIssue": "warning",
+  "reportMissingModuleSource": "warning"
 }
