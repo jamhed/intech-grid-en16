@@ -72,8 +72,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install markdownlint
-        run: npm install -g markdownlint-cli
+      - name: Install tools
+        run: npm install -g markdownlint-cli markdown-link-check
 
       - name: Lint markdown
-        run: markdownlint '**/*.md' --ignore node_modules --ignore __ext__
+        run: markdownlint '**/*.md' --ignore '**/node_modules/**' --ignore '__ext__/**'
+
+      - name: Check links
+        run: find . -name '*.md' -not -path '*/node_modules/*' -not -path './__ext__/*' | xargs -n1 markdown-link-check --config .markdown-link-check.json
