@@ -32,12 +32,12 @@ Both sides must agree on the MIDI layout (which CC/Note numbers mean what). See 
 |---------|----------|
 | Buttons 1-8 | Select track (long press to arm) |
 | Buttons 9-12 | Select Return track A-D |
-| Buttons 13-16 | Launch/stop clips 1-4 on selected track |
-| Encoders 1-8 | Device parameters |
+| Buttons 13-16 | Launch/stop clips 1-4 (selected track) |
+| Encoders 1-8 | Device parameters (selected track) |
 | Encoders 9-12 | (available for custom mapping) |
-| Encoder 13 | Send level to Return C |
-| Encoder 14 | Send level to Return B |
-| Encoder 15 | Send level to Return A |
+| Encoder 13 | Send level to Return C (selected track) |
+| Encoder 14 | Send level to Return B (selected track) |
+| Encoder 15 | Send level to Return A (selected track) |
 | Encoder 16 | Volume (selected track) |
 
 ## Installation
