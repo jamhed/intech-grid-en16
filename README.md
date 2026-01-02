@@ -1,5 +1,7 @@
 # Intech EN16 Ableton Control Surface
 
+[![CI](https://github.com/jamhed/intech-grid-en16/actions/workflows/ci.yml/badge.svg)](https://github.com/jamhed/intech-grid-en16/actions/workflows/ci.yml)
+
 ![Intech EN16](docs/en16.png)
 
 A custom Ableton Live control surface for the [Intech Grid EN16](https://intech.studio/shop/en16) controller.
