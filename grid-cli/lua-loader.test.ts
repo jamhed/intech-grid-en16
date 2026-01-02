@@ -3,6 +3,9 @@ import { loadLuaConfig, renameIdentifiers } from "./lua-loader.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Helper to create a temp Lua file for testing
 function createTempLuaFile(content: string): string {
@@ -86,7 +89,7 @@ describe("loadLuaConfig", () => {
       expect(config.configs[0].events).toHaveLength(3);
 
       // Events should be sorted by ID
-      const eventIds = config.configs[0].events.map(e => e.event);
+      const eventIds = config.configs[0].events.map((e) => e.event);
       expect(eventIds).toEqual([0, 2, 3]); // init=0, encoder=2, button=3
 
       fs.unlinkSync(file);
@@ -117,7 +120,7 @@ describe("loadLuaConfig", () => {
       expect(config.configs).toHaveLength(3);
 
       // Elements should be sorted with 255 last
-      const elements = config.configs.map(c => c.controlElementNumber);
+      const elements = config.configs.map((c) => c.controlElementNumber);
       expect(elements).toEqual([0, 1, 255]);
 
       fs.unlinkSync(file);
@@ -141,9 +144,9 @@ describe("loadLuaConfig", () => {
       expect(config.configs[0].controlElementNumber).toBe(255);
       expect(config.configs[0].events).toHaveLength(2);
 
-      const eventIds = config.configs[0].events.map(e => e.event);
-      expect(eventIds).toContain(4);  // utility
-      expect(eventIds).toContain(6);  // timer
+      const eventIds = config.configs[0].events.map((e) => e.event);
+      expect(eventIds).toContain(4); // utility
+      expect(eventIds).toContain(6); // timer
 
       fs.unlinkSync(file);
     });
@@ -164,10 +167,10 @@ describe("loadLuaConfig", () => {
       const file = createTempLuaFile(lua);
       const config = await loadLuaConfig(file);
 
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
       expect(sys).toBeDefined();
 
-      const initEvent = sys!.events.find(e => e.event === 0);
+      const initEvent = sys!.events.find((e) => e.event === 0);
       expect(initEvent).toBeDefined();
       expect(initEvent!.config).toContain("MIDI_NOTE=144");
       expect(initEvent!.config).toContain("CH=0");
@@ -192,10 +195,10 @@ describe("loadLuaConfig", () => {
       const file = createTempLuaFile(lua);
       const config = await loadLuaConfig(file);
 
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
       expect(sys).toBeDefined();
 
-      const initEvent = sys!.events.find(e => e.event === 0);
+      const initEvent = sys!.events.find((e) => e.event === 0);
       expect(initEvent).toBeDefined();
       expect(initEvent!.config).toContain("midirx_cb=function");
       expect(initEvent!.config).toContain("event[2]");
@@ -488,16 +491,16 @@ describe("loadLuaConfig", () => {
       expect(config.configs).toHaveLength(17);
 
       // Check element 0 has expected events
-      const el0 = config.configs.find(c => c.controlElementNumber === 0);
+      const el0 = config.configs.find((c) => c.controlElementNumber === 0);
       expect(el0).toBeDefined();
       expect(el0!.events.length).toBeGreaterThanOrEqual(3); // init, encoder, button
 
       // Check system element 255 exists
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
       expect(sys).toBeDefined();
 
       // Check colors are inlined correctly
-      const initEvent = el0!.events.find(e => e.event === 0);
+      const initEvent = el0!.events.find((e) => e.event === 0);
       expect(initEvent!.config).toContain("{0,0,255,1}"); // BLUE
     });
 
@@ -569,8 +572,8 @@ describe("loadLuaConfig", () => {
       const file = createTempLuaFile(lua);
       const config = await loadLuaConfig(file);
 
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
-      const initEvent = sys!.events.find(e => e.event === 0);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
+      const initEvent = sys!.events.find((e) => e.event === 0);
 
       // Body should contain the statements, not the function declaration
       expect(initEvent!.config).toContain("event[2]");
@@ -694,8 +697,8 @@ describe("loadLuaConfig", () => {
       const file = createTempLuaFile(lua);
       const config = await loadLuaConfig(file);
 
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
-      const initEvent = sys!.events.find(e => e.event === 0);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
+      const initEvent = sys!.events.find((e) => e.event === 0);
 
       expect(initEvent!.config).toContain("header[1] ~= 13");
       expect(initEvent!.config).toContain("cmd == 144 and el >= 16");
@@ -734,16 +737,16 @@ describe("loadLuaConfig", () => {
       const file = createTempLuaFile(lua);
       const config = await loadLuaConfig(file);
 
-      const el0 = config.configs.find(c => c.controlElementNumber === 0);
+      const el0 = config.configs.find((c) => c.controlElementNumber === 0);
       expect(el0).toBeDefined();
       expect(el0!.events.length).toBe(2);
 
       // Check init has color inlined
-      const initEvent = el0!.events.find(e => e.event === 0);
+      const initEvent = el0!.events.find((e) => e.event === 0);
       expect(initEvent!.config).toContain("{255,0,0,1}");
 
       // Check encoder event exists
-      const encoderEvent = el0!.events.find(e => e.event === 2);
+      const encoderEvent = el0!.events.find((e) => e.event === 2);
       expect(encoderEvent!.config).toContain("midi_send");
 
       fs.unlinkSync(file);
@@ -763,9 +766,9 @@ describe("loadLuaConfig", () => {
       const config = await loadLuaConfig(file);
 
       // Empty function should not create an event or should have empty config
-      const sys = config.configs.find(c => c.controlElementNumber === 255);
+      const sys = config.configs.find((c) => c.controlElementNumber === 255);
       if (sys) {
-        const utilityEvent = sys.events.find(e => e.event === 4);
+        const utilityEvent = sys.events.find((e) => e.event === 4);
         // Either no event or empty config is acceptable
         if (utilityEvent) {
           expect(utilityEvent.config).toBe("");
@@ -931,11 +934,7 @@ describe("renameIdentifiers", () => {
     });
 
     it("uses consistent names for globals across scripts", () => {
-      const scripts = [
-        "SHARED = 1",
-        "print(SHARED)",
-        "SHARED = SHARED + 1",
-      ];
+      const scripts = ["SHARED = 1", "print(SHARED)", "SHARED = SHARED + 1"];
       const result = renameIdentifiers(scripts);
 
       // Find what SHARED was renamed to in first script
@@ -1080,16 +1079,11 @@ describe("renameIdentifiers", () => {
 
   describe("mixed scopes", () => {
     it("handles local shadowing global", () => {
-      const scripts = [
-        "GLOBAL = 1",
-        "local GLOBAL = 2\nprint(GLOBAL)",
-      ];
+      const scripts = ["GLOBAL = 1", "local GLOBAL = 2\nprint(GLOBAL)"];
       const result = renameIdentifiers(scripts);
 
       // Global should be renamed consistently in first script
-      const globalMatch = result[0].match(/^(\w+) = 1$/);
-      expect(globalMatch).toBeTruthy();
-      const globalName = globalMatch![1];
+      expect(result[0]).toMatch(/^(\w+) = 1$/);
 
       // Local in second script should get different name
       // (or same if shadowing is handled by treating as new local)
@@ -1128,10 +1122,7 @@ print(outer)`,
     });
 
     it("does not clash with existing globals", () => {
-      const scripts = [
-        "a = 1\nMY_GLOBAL = 2",
-        "print(a + MY_GLOBAL)",
-      ];
+      const scripts = ["a = 1\nMY_GLOBAL = 2", "print(a + MY_GLOBAL)"];
       const result = renameIdentifiers(scripts);
 
       // 'a' should stay as 'a'
@@ -1175,7 +1166,9 @@ print(outer)`,
     });
 
     it("does not clash with existing short function names", () => {
-      const scripts = ["local function a() return 1 end\nlocal function myLongFunc() return 2 end\nprint(a() + myLongFunc())"];
+      const scripts = [
+        "local function a() return 1 end\nlocal function myLongFunc() return 2 end\nprint(a() + myLongFunc())",
+      ];
       const result = renameIdentifiers(scripts);
 
       // 'a' should stay as 'a'
@@ -1227,10 +1220,7 @@ print(outer)`,
     });
 
     it("handles multiple scripts with different locals", () => {
-      const scripts = [
-        "local foo = 1",
-        "local bar = 2",
-      ];
+      const scripts = ["local foo = 1", "local bar = 2"];
       const result = renameIdentifiers(scripts);
 
       // Each script's locals are independent
@@ -1323,5 +1313,149 @@ midi_send(CH, MIDI_NOTE, note, val)`,
       expect(result[0]).toContain("midi_send");
       expect(result[0]).toContain("self:");
     });
+  });
+
+  describe("name generator overflow", () => {
+    it("generates names beyond single letter (a-z, aa, ab...)", () => {
+      // Create 30 globals to force overflow past 'z'
+      const globals = Array.from({ length: 30 }, (_, i) => `GLOBAL_${i}`);
+      const scripts = [globals.map((g) => `${g} = ${globals.indexOf(g)}`).join("\n")];
+      const result = renameIdentifiers(scripts);
+
+      // Should not contain any original names
+      for (const g of globals) {
+        expect(result[0]).not.toContain(g);
+      }
+
+      // Should have generated multi-letter names (aa, ab, etc.)
+      // After a-z (26), next should be 'aa'
+      expect(result[0]).toMatch(/\baa\b/);
+    });
+
+    it("handles many variables without collision", () => {
+      // Create 100 globals to test extensive name generation
+      const globals = Array.from({ length: 100 }, (_, i) => `VAR_${i}`);
+      const scripts = [globals.map((g) => `${g} = 1`).join("\n")];
+      const result = renameIdentifiers(scripts);
+
+      // Count unique variable names in output
+      const matches = result[0].match(/\b([a-z]+)\b(?= = 1)/g);
+      expect(matches).toBeTruthy();
+      const uniqueNames = new Set(matches);
+      expect(uniqueNames.size).toBe(100);
+    });
+  });
+
+  describe("error recovery", () => {
+    it("returns original source for invalid Lua syntax", () => {
+      const scripts = ["this is not valid lua {{{{"];
+      const result = renameIdentifiers(scripts);
+
+      // Should return original source when parsing fails
+      expect(result[0]).toBe(scripts[0]);
+    });
+
+    it("handles empty scripts", () => {
+      const scripts = [""];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("");
+    });
+
+    it("handles scripts with only whitespace", () => {
+      const scripts = ["   \n\t  \n  "];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("   \n\t  \n  ");
+    });
+
+    it("handles scripts with only comments", () => {
+      const scripts = ["-- just a comment\n-- another comment"];
+      const result = renameIdentifiers(scripts);
+
+      expect(result[0]).toBe("-- just a comment\n-- another comment");
+    });
+  });
+});
+
+describe("upvalue inlining edge cases", () => {
+  it("does not inline method calls (colon syntax)", async () => {
+    const lua = `
+      local grid = require("grid")
+      local color = {0, 0, 255, 1}
+      return grid.config {
+        name = "Test",
+        type = "EN16",
+        version = {1, 0, 0},
+        [0] = {
+          init = function(self)
+            self:led_color(1, {color})
+          end,
+        },
+      }
+    `;
+    const file = createTempLuaFile(lua);
+    const config = await loadLuaConfig(file);
+
+    // The color upvalue should be inlined
+    const initEvent = config.configs[0]?.events.find((e) => e.event === 0);
+    expect(initEvent?.config).toContain("{0,0,255,1}");
+    // self:led_color should remain as method call
+    expect(initEvent?.config).toContain("self:led_color");
+
+    fs.unlinkSync(file);
+  });
+
+  it("does not inline function call results", async () => {
+    const lua = `
+      local grid = require("grid")
+      local function getColor() return {0, 255, 0, 1} end
+      return grid.config {
+        name = "Test",
+        type = "EN16",
+        version = {1, 0, 0},
+        [0] = {
+          init = function(self)
+            self:led_color(1, {getColor()})
+          end,
+        },
+      }
+    `;
+    const file = createTempLuaFile(lua);
+    const config = await loadLuaConfig(file);
+
+    // getColor() should remain as function call, not inlined
+    const initEvent = config.configs[0]?.events.find((e) => e.event === 0);
+    // Function calls can't be serialized, so body extraction may differ
+    expect(initEvent?.config).toBeTruthy();
+
+    fs.unlinkSync(file);
+  });
+
+  it("handles chained method calls correctly", async () => {
+    const lua = `
+      local grid = require("grid")
+      return grid.config {
+        name = "Test",
+        type = "EN16",
+        version = {1, 0, 0},
+        [0] = {
+          encoder = function(self)
+            local val = self:encoder_value()
+            midi_send(0, 176, self:element_index(), val)
+          end,
+        },
+      }
+    `;
+    const file = createTempLuaFile(lua);
+    const config = await loadLuaConfig(file);
+
+    const encoderEvent = config.configs[0]?.events.find((e) => e.event === 2);
+    expect(encoderEvent?.config).toBeTruthy();
+    // Method calls should be preserved
+    expect(encoderEvent?.config).toContain("self:encoder_value()");
+    expect(encoderEvent?.config).toContain("self:element_index()");
+
+    fs.unlinkSync(file);
   });
 });

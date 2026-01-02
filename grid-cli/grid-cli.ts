@@ -1,5 +1,4 @@
 #!/usr/bin/env npx tsx
-import { SerialPort } from "serialport";
 import { program } from "commander";
 import * as fs from "fs";
 import * as path from "path";
@@ -9,272 +8,34 @@ import {
   EVENT_NAMES,
   DEVICE_CONFIG,
   ConfigFile,
-  EventConfig,
   wrapScript,
   unwrapScript,
   validateActionLength,
   countEvents,
   parseEventType,
   validatePage,
-  matchesUsbFilter,
   sortElements,
   renderProgress,
   getErrorMessage,
   forEachEvent,
   mapEvents,
 } from "./lib.js";
+import { GridConnection } from "./connection.js";
 
-// Dynamically import grid-protocol to work around ESM issues
+// Dynamically import grid-protocol for GridScript (minification)
 const gridProtocol = await import("@intechstudio/grid-protocol");
-const { grid, GridScript } = gridProtocol;
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const LF = 0x0a;
-const SERIAL_BAUD_RATE = 2000000;
-const DEFAULT_TIMEOUT_MS = 500;
-const DEFAULT_RETRIES = 2;
-
-// Cache protocol constants at module level
-const PROTOCOL_CONST = {
-  SOH: parseInt(grid.getProperty("CONST").SOH),
-  EOT: parseInt(grid.getProperty("CONST").EOT),
-} as const;
-
-const VERSION = grid.getProperty("VERSION");
-
-interface DecodedFrame {
-  class_name: string;
-  class_instr: string;
-  class_parameters: {
-    ACTIONSTRING?: string;
-    LENGTH?: number;
-    [key: string]: unknown;
-  };
-  brc_parameters: Record<string, number>;
-  raw: number[];
-}
-
-interface Packet {
-  serial: number[];
-  id: number;
-}
-
-interface SendOptions {
-  timeout: number;
-  retries: number;
-  debug?: boolean;
-}
-
-// =============================================================================
-// Packet Building
-// =============================================================================
-
-function buildConfigPacket(
-  instruction: "EXECUTE" | "FETCH",
-  params: {
-    pageNumber: number;
-    elementNumber: number;
-    eventType: number;
-    actionString?: string;
-  }
-): Packet {
-  const actionString = params.actionString ?? "";
-
-  const descriptor = {
-    brc_parameters: {
-      DX: 0,
-      DY: 0,
-    },
-    class_name: "CONFIG",
-    class_instr: instruction,
-    class_parameters: {
-      VERSIONMAJOR: VERSION.MAJOR,
-      VERSIONMINOR: VERSION.MINOR,
-      VERSIONPATCH: VERSION.PATCH,
-      PAGENUMBER: params.pageNumber,
-      ELEMENTNUMBER: params.elementNumber,
-      EVENTTYPE: params.eventType,
-      ACTIONLENGTH: actionString.length,
-      ACTIONSTRING: actionString,
-    },
-  };
-
-  const result = grid.encode_packet(descriptor);
-  if (!result) {
-    throw new Error(`Failed to encode CONFIG ${instruction} packet`);
-  }
-  return result;
-}
-
-// =============================================================================
-// Packet Parsing
-// =============================================================================
-
-function parsePacket(data: Buffer): DecodedFrame[] | null {
-  const bytes = Array.from(data);
-
-  const start = bytes.indexOf(PROTOCOL_CONST.SOH);
-  if (start === -1) return null;
-
-  let end = -1;
-  for (let i = start; i < bytes.length - 2; i++) {
-    if (bytes[i] === PROTOCOL_CONST.EOT) {
-      end = i + 3;
-      break;
-    }
-  }
-
-  if (end === -1 || end > bytes.length) return null;
-
-  const packetBytes = bytes.slice(start, end);
-  const frames = grid.decode_packet_frame(packetBytes) as DecodedFrame[] | undefined;
-
-  if (!frames) {
-    return null;
-  }
-
-  grid.decode_packet_classes(frames);
-  return frames;
-}
-
-function parseConfigReport(data: Buffer): { actionString: string } | null {
-  const frames = parsePacket(data);
-  if (!frames) return null;
-
-  for (const frame of frames) {
-    if (frame.class_name === "CONFIG" && frame.class_instr === "REPORT") {
-      return { actionString: frame.class_parameters.ACTIONSTRING ?? "" };
-    }
-  }
-
-  return null;
-}
-
-function hasAcknowledge(data: Buffer): boolean {
-  const frames = parsePacket(data);
-  if (!frames) return false;
-  return frames.some((frame) => frame.class_instr === "ACKNOWLEDGE");
-}
-
-// =============================================================================
-// Serial Port Helpers
-// =============================================================================
-
-async function findDevice(manualPort?: string): Promise<string> {
-  if (manualPort) return manualPort;
-
-  const ports = await SerialPort.list();
-
-  for (const port of ports) {
-    if (matchesUsbFilter(port.vendorId, port.productId)) {
-      console.log(`Found Grid device: ${port.path} (VID: ${port.vendorId}, PID: ${port.productId})`);
-      return port.path;
-    }
-  }
-
-  console.log("\nAvailable ports:");
-  for (const port of ports) {
-    console.log(`  ${port.path} - ${port.manufacturer ?? "Unknown"} (VID: ${port.vendorId}, PID: ${port.productId})`);
-  }
-
-  throw new Error("No Grid device found. Connect device or specify --port.");
-}
-
-async function openPort(portPath: string): Promise<SerialPort> {
-  const port = new SerialPort({
-    path: portPath,
-    baudRate: SERIAL_BAUD_RATE,
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    port.once("open", resolve);
-    port.once("error", reject);
-  });
-
-  return port;
-}
-
-// =============================================================================
-// Communication
-// =============================================================================
-
-async function sendAndWait<T>(
-  port: SerialPort,
-  packet: Packet,
-  parser: (buffer: Buffer) => T | null,
-  options: SendOptions
-): Promise<T> {
-  const { timeout, retries, debug = false } = options;
-
-  return new Promise((resolve, reject) => {
-    let timeoutId: NodeJS.Timeout;
-    let attempt = 0;
-    let buffer = Buffer.alloc(0);
-
-    const cleanup = () => {
-      clearTimeout(timeoutId);
-      port.removeListener("data", onData);
-    };
-
-    const sendPacket = () => {
-      attempt++;
-      buffer = Buffer.alloc(0);
-      clearTimeout(timeoutId);
-
-      timeoutId = setTimeout(() => {
-        if (attempt < retries) {
-          sendPacket();
-        } else {
-          cleanup();
-          reject(new Error(`Timeout after ${retries} attempts`));
-        }
-      }, timeout);
-
-      port.write(Buffer.from([...packet.serial, LF]));
-    };
-
-    const onData = (data: Buffer) => {
-      buffer = Buffer.concat([buffer, data]);
-
-      if (debug) {
-        console.log(`\n  [DEBUG] Received ${data.length} bytes:`, buffer.toString("hex").slice(0, 100));
-      }
-
-      const result = parser(buffer);
-      if (result !== null) {
-        cleanup();
-        resolve(result);
-      }
-    };
-
-    port.on("data", onData);
-    sendPacket();
-  });
-}
-
-async function sendAndWaitAck(port: SerialPort, packet: Packet, options: Partial<SendOptions> = {}): Promise<void> {
-  const { timeout = 1000, retries = 3 } = options;
-  await sendAndWait(port, packet, (buf) => (hasAcknowledge(buf) ? true : null), { timeout, retries });
-}
-
-async function sendAndWaitReport(
-  port: SerialPort,
-  packet: Packet,
-  options: Partial<SendOptions> = {}
-): Promise<string> {
-  const { timeout = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES, debug = false } = options;
-  const result = await sendAndWait(port, packet, parseConfigReport, { timeout, retries, debug });
-  return result.actionString;
-}
+const { GridScript } = gridProtocol;
 
 // =============================================================================
 // Config Operations
 // =============================================================================
 
-async function uploadConfig(port: SerialPort, config: ConfigFile, pages: number[], verbose: boolean): Promise<void> {
+async function uploadConfig(
+  conn: GridConnection,
+  config: ConfigFile,
+  pages: number[],
+  verbose: boolean
+): Promise<void> {
   const totalEvents = countEvents(config) * pages.length;
   let current = 0;
 
@@ -290,15 +51,8 @@ async function uploadConfig(port: SerialPort, config: ConfigFile, pages: number[
 
         validateActionLength(actionString, element.controlElementNumber, eventType);
 
-        const packet = buildConfigPacket("EXECUTE", {
-          pageNumber: pageNum,
-          elementNumber: element.controlElementNumber,
-          eventType,
-          actionString,
-        });
-
         try {
-          await sendAndWaitAck(port, packet);
+          await conn.uploadScript(pageNum, element.controlElementNumber, eventType, actionString);
           current++;
           renderProgress(current, totalEvents, `Element ${element.controlElementNumber}, Event ${eventType}`);
 
@@ -324,7 +78,7 @@ interface DownloadResult {
 }
 
 async function downloadConfig(
-  port: SerialPort,
+  conn: GridConnection,
   deviceType: string,
   deviceConfig: { elements: number[]; events: number[]; systemEvents: number[] },
   pageNum: number,
@@ -356,14 +110,8 @@ async function downloadConfig(
 
   let current = 0;
   for (const { element: elementNum, event: eventType } of toFetch) {
-    const packet = buildConfigPacket("FETCH", {
-      pageNumber: pageNum,
-      elementNumber: elementNum,
-      eventType,
-    });
-
     try {
-      const actionString = await sendAndWaitReport(port, packet, { timeout: DEFAULT_TIMEOUT_MS, retries: 1 });
+      const actionString = await conn.fetchScript(pageNum, elementNum, eventType);
       const script = unwrapScript(actionString);
 
       if (script) {
@@ -388,23 +136,16 @@ async function downloadConfig(
   console.log("\n");
 
   // Convert to config format
-  for (const [elementNum, events] of elementConfigs) {
-    const eventArray: EventConfig[] = [];
-    for (const [eventType, script] of events) {
-      eventArray.push({ event: eventType, config: script });
-    }
-    eventArray.sort((a, b) => a.event - b.event);
-
-    if (eventArray.length > 0) {
-      config.configs.push({
+  config.configs = sortElements(
+    [...elementConfigs.entries()]
+      .map(([elementNum, events]) => ({
         controlElementNumber: elementNum,
-        events: eventArray,
-      });
-    }
-  }
-
-  // Sort elements (system element last)
-  config.configs = sortElements(config.configs);
+        events: [...events.entries()]
+          .map(([eventType, script]) => ({ event: eventType, config: script }))
+          .sort((a, b) => a.event - b.event),
+      }))
+      .filter((el) => el.events.length > 0)
+  );
 
   return { config, failed };
 }
@@ -488,15 +229,14 @@ program
     }
 
     console.log("\nConnecting to Grid device...");
-    const portPath = await findDevice(options.port);
-    const port = await openPort(portPath);
+    const conn = await GridConnection.connect(options.port);
     console.log("Connected.\n");
 
     try {
-      await uploadConfig(port, config, pages, options.verbose);
+      await uploadConfig(conn, config, pages, options.verbose);
       console.log("Upload complete!");
     } finally {
-      port.close();
+      conn.close();
     }
   });
 
@@ -590,12 +330,11 @@ program
     console.log(`Output:   ${outputPath}`);
 
     console.log("\nConnecting to Grid device...");
-    const portPath = await findDevice(options.port);
-    const port = await openPort(portPath);
+    const conn = await GridConnection.connect(options.port);
     console.log("Connected.\n");
 
     try {
-      const { config, failed } = await downloadConfig(port, deviceType, deviceConfig, options.page, options.verbose);
+      const { config, failed } = await downloadConfig(conn, deviceType, deviceConfig, options.page, options.verbose);
 
       const fullPath = path.resolve(outputPath);
       fs.writeFileSync(fullPath, JSON.stringify(config, null, 2));
@@ -608,7 +347,7 @@ program
         console.log(`\nWarning: ${failed.length} fetch(es) failed (empty events are normal)`);
       }
     } finally {
-      port.close();
+      conn.close();
     }
   });
 

@@ -21,12 +21,12 @@ npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 
 Options:
 
-| Flag | Description |
-|------|-------------|
+| Flag                | Description                                      |
+| ------------------- | ------------------------------------------------ |
 | `-p, --port <path>` | Serial port path (auto-detects if not specified) |
-| `--page <n>` | Upload to specific page only (0-3, default: all) |
-| `-v, --verbose` | Show detailed progress |
-| `-d, --dry-run` | Validate config without uploading |
+| `--page <n>`        | Upload to specific page only (0-3, default: all) |
+| `-v, --verbose`     | Show detailed progress                           |
+| `-d, --dry-run`     | Validate config without uploading                |
 
 ### Download Configuration
 
@@ -38,12 +38,12 @@ npx tsx grid-cli.ts download ./backup.json
 
 Options:
 
-| Flag | Description |
-|------|-------------|
+| Flag                | Description                                      |
+| ------------------- | ------------------------------------------------ |
 | `-p, --port <path>` | Serial port path (auto-detects if not specified) |
-| `-t, --type <type>` | Device type (default: EN16) |
-| `--page <n>` | Download from specific page (0-3, default: 0) |
-| `-v, --verbose` | Show detailed progress |
+| `-t, --type <type>` | Device type (default: EN16)                      |
+| `--page <n>`        | Download from specific page (0-3, default: 0)    |
+| `-v, --verbose`     | Show detailed progress                           |
 
 Supported device types: `EN16`, `PO16`, `BU16`, `EF44`, `PBF4`, `TEK2`, `PB44`
 
@@ -60,11 +60,11 @@ npx tsx grid-cli.ts convert ../configs/EN16-Control.lua --no-minify
 
 Options:
 
-| Flag | Description |
-|------|-------------|
-| `-o, --output <path>` | Output file path (prints to stdout if not specified) |
-| `-r, --rename` | Rename user variables/functions to short names |
-| `--no-minify` | Skip minification (keep human-readable function names) |
+| Flag                  | Description                                            |
+| --------------------- | ------------------------------------------------------ |
+| `-o, --output <path>` | Output file path (prints to stdout if not specified)   |
+| `-r, --rename`        | Rename user variables/functions to short names         |
+| `--no-minify`         | Skip minification (keep human-readable function names) |
 
 #### Minification
 
@@ -190,13 +190,13 @@ return grid.config {
 
 #### Script Structure
 
-| Section | Description |
-|---------|-------------|
-| `local` variables | Inlined into function bodies as upvalues |
-| Global assignments | Become system init (element 255, event 0) |
-| `midirx_cb`, `sysex_cb` | Callbacks included in system init |
-| `utility`, `timer` | Top-level system event handlers |
-| `[0]`, `[1]`, ... | Element-specific handlers |
+| Section                 | Description                               |
+| ----------------------- | ----------------------------------------- |
+| `local` variables       | Inlined into function bodies as upvalues  |
+| Global assignments      | Become system init (element 255, event 0) |
+| `midirx_cb`, `sysex_cb` | Callbacks included in system init         |
+| `utility`, `timer`      | Top-level system event handlers           |
+| `[0]`, `[1]`, ...       | Element-specific handlers                 |
 
 The CLI automatically detects the format by file extension (`.json` or `.lua`).
 

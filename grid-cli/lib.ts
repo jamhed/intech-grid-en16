@@ -139,12 +139,15 @@ export function sortElements(configs: ElementConfig[]): ElementConfig[] {
 // Progress Helpers
 // =============================================================================
 
+const PROGRESS_BAR_WIDTH = 20;
+
 /**
  * Render a progress bar to stdout.
  */
 export function renderProgress(current: number, total: number, suffix: string): void {
   const pct = Math.round((current / total) * 100);
-  const bar = "=".repeat(Math.floor(pct / 5)).padEnd(20, " ");
+  const filled = Math.floor((pct / 100) * PROGRESS_BAR_WIDTH);
+  const bar = "=".repeat(filled).padEnd(PROGRESS_BAR_WIDTH, " ");
   process.stdout.write(`\r[${bar}] ${pct}% | ${suffix}`);
 }
 

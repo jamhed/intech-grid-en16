@@ -12,20 +12,47 @@ const { grid } = gridProtocol;
 
 const { lua, lauxlib, lualib } = fengari;
 
+// Lua state type alias for documentation
+type LuaState = ReturnType<typeof lauxlib.luaL_newstate>;
+
+/**
+ * Convert negative stack index to absolute index.
+ */
+const toAbsoluteIndex = (L: LuaState, idx: number): number =>
+  idx < 0 ? lua.lua_gettop(L) + idx + 1 : idx;
+
 // Reverse lookup: event name -> event ID
 const EVENT_IDS: Record<string, number> = Object.fromEntries(
   Object.entries(EVENT_NAMES).map(([id, name]) => [name, parseInt(id, 10)])
 );
 
+/** Maximum array length for serialization (prevents huge table dumps) */
+const MAX_SERIALIZABLE_ARRAY_LENGTH = 20;
+
 // =============================================================================
-// AST-based function extraction
+// AST Types (luaparse)
 // =============================================================================
 
+/** Base interface for all luaparse AST nodes */
+interface LuaASTNode {
+  type: string;
+  range?: [number, number];
+  loc?: { start: { line: number }; end: { line: number } };
+  body?: LuaASTNode[];
+  name?: string;
+  [key: string]: unknown;
+}
+
+/** Function location extracted from AST */
 interface FunctionNode {
   startLine: number;
   bodyStart: number;
   bodyEnd: number;
 }
+
+// =============================================================================
+// AST-based function extraction
+// =============================================================================
 
 /**
  * Parse Lua source and extract all function locations.
@@ -34,7 +61,7 @@ function parseFunctions(source: string): FunctionNode[] {
   const functions: FunctionNode[] = [];
 
   try {
-    const ast = luaparse.parse(source, { locations: true, ranges: true });
+    const ast = luaparse.parse(source, { locations: true, ranges: true }) as LuaASTNode;
     collectFunctions(ast, functions);
   } catch {
     // Parse error - return empty, will fall back to line-based extraction
@@ -46,15 +73,16 @@ function parseFunctions(source: string): FunctionNode[] {
 /**
  * Recursively collect function nodes from AST.
  */
-function collectFunctions(node: any, results: FunctionNode[]): void {
+function collectFunctions(node: LuaASTNode, results: FunctionNode[]): void {
   if (!node || typeof node !== "object") return;
 
   if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
-    if (node.body?.length > 0 && node.loc && node.body[0].range && node.body[node.body.length - 1].range) {
+    const body = node.body as LuaASTNode[] | undefined;
+    if (body?.length && node.loc && body[0].range && body[body.length - 1].range) {
       results.push({
         startLine: node.loc.start.line,
-        bodyStart: node.body[0].range[0],
-        bodyEnd: node.body[node.body.length - 1].range[1],
+        bodyStart: body[0].range[0],
+        bodyEnd: body[body.length - 1].range[1],
       });
     }
   }
@@ -62,9 +90,9 @@ function collectFunctions(node: any, results: FunctionNode[]): void {
   for (const key in node) {
     const value = node[key];
     if (Array.isArray(value)) {
-      value.forEach((child) => collectFunctions(child, results));
-    } else if (typeof value === "object") {
-      collectFunctions(value, results);
+      value.forEach((child) => collectFunctions(child as LuaASTNode, results));
+    } else if (value && typeof value === "object") {
+      collectFunctions(value as LuaASTNode, results);
     }
   }
 }
@@ -89,9 +117,9 @@ function extractFunctionBody(source: string, startLine: number, functions: Funct
  * Serialize a simple Lua value to a Lua literal string.
  * Only handles primitives and flat arrays of primitives (like color tables).
  */
-function serializeLuaValue(L: any, index: number, allowTable = true): string | null {
-  const type = lua.lua_type(L, index);
-  const absIdx = index < 0 ? lua.lua_gettop(L) + index + 1 : index;
+function serializeLuaValue(L: LuaState, index: number, allowTable = true): string | null {
+  const absIdx = toAbsoluteIndex(L, index);
+  const type = lua.lua_type(L, absIdx);
 
   switch (type) {
     case lua.LUA_TNIL:
@@ -107,7 +135,7 @@ function serializeLuaValue(L: any, index: number, allowTable = true): string | n
 
       // Get table length for array-style tables
       const len = lua.lua_rawlen(L, absIdx);
-      if (len === 0 || len > 20) return null;
+      if (len === 0 || len > MAX_SERIALIZABLE_ARRAY_LENGTH) return null;
 
       // Serialize as array using rawgeti to preserve order
       const parts: string[] = [];
@@ -137,11 +165,9 @@ function serializeLuaValue(L: any, index: number, allowTable = true): string | n
 /**
  * Get upvalues for a function and return as name->serialized value map.
  */
-function getUpvalues(L: any, fnIndex: number): Map<string, string> {
+function getUpvalues(L: LuaState, fnIndex: number): Map<string, string> {
   const upvalues = new Map<string, string>();
-
-  // Normalize index to absolute
-  const absIdx = fnIndex < 0 ? lua.lua_gettop(L) + fnIndex + 1 : fnIndex;
+  const absIdx = toAbsoluteIndex(L, fnIndex);
 
   let i = 1;
   while (true) {
@@ -259,15 +285,9 @@ function generateGridApiStubs(): string {
 
   forEachGridFunction((shortName, humanName) => {
     const customBody = CUSTOM_STUBS[shortName];
-
-    // Generate function stub with custom return value if defined
-    if (customBody?.includes("return v")) {
-      stubs.push(`function ${shortName}(v) ${customBody} end`);
-    } else if (customBody) {
-      stubs.push(`function ${shortName}() ${customBody} end`);
-    } else {
-      stubs.push(`function ${shortName}() end`);
-    }
+    const params = customBody?.includes("return v") ? "(v)" : "()";
+    const body = customBody ? ` ${customBody} ` : " ";
+    stubs.push(`function ${shortName}${params}${body}end`);
 
     // Generate human-readable alias if available
     if (humanName && humanName !== shortName) {
@@ -424,8 +444,11 @@ const RESERVED_IDENTIFIERS = new Set([
  */
 class NameGenerator {
   private index = 0;
+  private reserved: Set<string>;
 
-  constructor(private reserved: Set<string>) {}
+  constructor(...additionalReserved: Iterable<string>[]) {
+    this.reserved = new Set([...RESERVED_IDENTIFIERS, ...additionalReserved.flatMap((s) => [...s])]);
+  }
 
   next(): string {
     let name: string;
@@ -454,14 +477,31 @@ interface IdentifierInfo {
   scope: number;
 }
 
+/** Raw identifier from AST parsing */
+interface RawIdentifier {
+  name: string;
+  range: [number, number];
+  scopeAtCreation: number;
+}
+
+/** Declaration info from local statement */
+interface Declaration {
+  name: string;
+  scope: number;
+}
+
+/** Result of parsing phase */
+interface ParseResult {
+  identifiers: RawIdentifier[];
+  declarations: Declaration[];
+}
+
 /**
- * Collect all identifiers from Lua source with scope information.
- * Two-pass approach: first collect, then analyze scope.
+ * Parse Lua source and collect raw identifiers and declarations.
  */
-function collectIdentifiers(source: string): IdentifierInfo[] {
-  // First pass: collect all identifiers and declarations
-  const allIdentifiers: Array<{ name: string; range: [number, number]; scopeAtCreation: number }> = [];
-  const declarations: Array<{ name: string; range: [number, number]; scope: number }> = [];
+function parseWithScopeTracking(source: string): ParseResult | null {
+  const identifiers: RawIdentifier[] = [];
+  const declarations: Declaration[] = [];
   let scopeDepth = 0;
 
   try {
@@ -469,45 +509,45 @@ function collectIdentifiers(source: string): IdentifierInfo[] {
       locations: true,
       ranges: true,
       scope: true,
-      onCreateScope: () => {
-        scopeDepth++;
-      },
-      onDestroyScope: () => {
-        scopeDepth--;
-      },
+      onCreateScope: () => scopeDepth++,
+      onDestroyScope: () => scopeDepth--,
       onLocalDeclaration: (name: string) => {
-        // Mark this name as declared at current scope
-        // We'll match it to identifier nodes by name and scope
-        declarations.push({ name, range: [0, 0], scope: scopeDepth });
+        declarations.push({ name, scope: scopeDepth });
       },
-      onCreateNode: (node: any) => {
-        if (node.type === "Identifier" && node.range) {
-          allIdentifiers.push({
-            name: node.name,
-            range: node.range,
-            scopeAtCreation: scopeDepth,
-          });
+      onCreateNode: (node: LuaASTNode) => {
+        if (node.type === "Identifier" && node.range && node.name) {
+          identifiers.push({ name: node.name, range: node.range, scopeAtCreation: scopeDepth });
         }
       },
     });
+    return { identifiers, declarations };
   } catch {
-    return [];
+    return null;
   }
+}
 
-  // Build declaration map: name -> [scopes where declared]
+/**
+ * Build declaration map: name -> [scopes where declared]
+ */
+function buildDeclarationMap(declarations: Declaration[]): Map<string, number[]> {
   const declaredAt = new Map<string, number[]>();
   for (const d of declarations) {
     const scopes = declaredAt.get(d.name) || [];
     scopes.push(d.scope);
     declaredAt.set(d.name, scopes);
   }
+  return declaredAt;
+}
 
-  // Second pass: determine which identifiers are local
+/**
+ * Classify raw identifiers into IdentifierInfo with local/declaration status.
+ */
+function classifyIdentifiers(rawIds: RawIdentifier[], declaredAt: Map<string, number[]>): IdentifierInfo[] {
   const identifiers: IdentifierInfo[] = [];
   const seenRanges = new Set<string>();
-  const declCounts = new Map<string, number>(); // Track how many declarations we've seen per name
+  const declCounts = new Map<string, number>();
 
-  for (const id of allIdentifiers) {
+  for (const id of rawIds) {
     const key = `${id.range[0]},${id.range[1]}`;
     if (seenRanges.has(key)) continue;
     seenRanges.add(key);
@@ -537,14 +577,21 @@ function collectIdentifiers(source: string): IdentifierInfo[] {
 }
 
 /**
+ * Collect all identifiers from Lua source with scope information.
+ */
+function collectIdentifiers(source: string): IdentifierInfo[] {
+  const parsed = parseWithScopeTracking(source);
+  if (!parsed) return [];
+
+  const declaredAt = buildDeclarationMap(parsed.declarations);
+  return classifyIdentifiers(parsed.identifiers, declaredAt);
+}
+
+/**
  * Check if an identifier should be renamed.
  */
-function shouldRename(name: string): boolean {
-  if (LUA_KEYWORDS.has(name)) return false;
-  if (RESERVED_IDENTIFIERS.has(name)) return false;
-  if (BUILTIN_GLOBALS.has(name)) return false;
-  return true;
-}
+const shouldRename = (name: string): boolean =>
+  !LUA_KEYWORDS.has(name) && !RESERVED_IDENTIFIERS.has(name) && !BUILTIN_GLOBALS.has(name);
 
 /**
  * Check if an identifier would benefit from renaming (is longer than minimal).
@@ -572,39 +619,61 @@ function applyRenames(source: string, identifiers: IdentifierInfo[], renames: Ma
   return result;
 }
 
-/**
- * Rename identifiers in a single script.
- * @param source - Lua source code
- * @param globalRenames - Pre-defined renames for globals (consistent across scripts)
- * @returns Renamed source
- */
-function renameScript(source: string, globalRenames: Map<string, string>): string {
-  const identifiers = collectIdentifiers(source);
-  if (identifiers.length === 0) return source;
+/** Analysis result for a single script */
+interface ScriptAnalysis {
+  source: string;
+  identifiers: IdentifierInfo[];
+  keptNames: Set<string>;
+}
 
-  // Collect names that will be KEPT (not renamed) to avoid collisions
-  const keptNames = new Set<string>();
-  for (const id of identifiers) {
-    // Keep single-letter names and names that shouldn't be renamed
-    if (!shouldRename(id.name) || !needsRenaming(id.name)) {
-      keptNames.add(id.name);
+/**
+ * Analyze all scripts in a single pass.
+ * Returns parsed identifiers, globals, and kept names for efficient renaming.
+ */
+function analyzeScripts(scripts: string[]): {
+  analyses: ScriptAnalysis[];
+  globals: Set<string>;
+  allKeptNames: Set<string>;
+} {
+  const analyses: ScriptAnalysis[] = [];
+  const globals = new Set<string>();
+  const allKeptNames = new Set<string>();
+
+  for (const source of scripts) {
+    const identifiers = collectIdentifiers(source);
+    const keptNames = new Set<string>();
+
+    for (const id of identifiers) {
+      if (!shouldRename(id.name) || !needsRenaming(id.name)) {
+        keptNames.add(id.name);
+        allKeptNames.add(id.name);
+      } else if (!id.isLocal) {
+        globals.add(id.name);
+      }
     }
+
+    analyses.push({ source, identifiers, keptNames });
   }
 
-  // Build local renames (per-script)
-  // Reserve: global rename targets, reserved identifiers, and kept names
-  const localRenames = new Map<string, string>();
-  const nameGen = new NameGenerator(new Set([...globalRenames.values(), ...RESERVED_IDENTIFIERS, ...keptNames]));
+  return { analyses, globals, allKeptNames };
+}
 
-  // Find local declarations that need renaming
+/**
+ * Rename identifiers in a single script using pre-parsed data.
+ */
+function renameScriptWithAnalysis(
+  analysis: ScriptAnalysis,
+  globalRenames: Map<string, string>
+): string {
+  const { source, identifiers, keptNames } = analysis;
+  if (identifiers.length === 0) return source;
+
+  // Build local renames (per-script)
+  const localRenames = new Map<string, string>();
+  const nameGen = new NameGenerator(globalRenames.values(), keptNames);
+
   for (const id of identifiers) {
-    if (
-      id.isLocal &&
-      id.isDeclaration &&
-      shouldRename(id.name) &&
-      needsRenaming(id.name) &&
-      !localRenames.has(id.name)
-    ) {
+    if (id.isLocal && id.isDeclaration && shouldRename(id.name) && needsRenaming(id.name) && !localRenames.has(id.name)) {
       localRenames.set(id.name, nameGen.next());
     }
   }
@@ -614,72 +683,47 @@ function renameScript(source: string, globalRenames: Map<string, string>): strin
 
   // Filter identifiers to only those that should be renamed
   const toRename = identifiers.filter((id) => {
-    if (!shouldRename(id.name)) return false;
-    if (!needsRenaming(id.name)) return false;
-    if (id.isLocal) return localRenames.has(id.name);
-    return globalRenames.has(id.name);
+    if (!shouldRename(id.name) || !needsRenaming(id.name)) return false;
+    return id.isLocal ? localRenames.has(id.name) : globalRenames.has(id.name);
   });
 
   return applyRenames(source, toRename, allRenames);
 }
 
 /**
- * Analyze identifiers across multiple scripts in a single pass.
- * Returns globals that need renaming and names that will be kept.
- */
-function analyzeIdentifiers(scripts: string[]): { globals: Set<string>; keptNames: Set<string> } {
-  const globals = new Set<string>();
-  const keptNames = new Set<string>();
-
-  for (const source of scripts) {
-    for (const id of collectIdentifiers(source)) {
-      if (!shouldRename(id.name) || !needsRenaming(id.name)) {
-        keptNames.add(id.name);
-      } else if (!id.isLocal) {
-        globals.add(id.name);
-      }
-    }
-  }
-
-  return { globals, keptNames };
-}
-
-/**
  * Rename identifiers across multiple scripts with consistent global naming.
+ * Parses each script only once for efficiency.
  * @param scripts - Array of Lua source strings
  * @returns Array of renamed sources
  */
 export function renameIdentifiers(scripts: string[]): string[] {
-  // Single pass: collect globals and kept names
-  const { globals, keptNames } = analyzeIdentifiers(scripts);
+  // Single pass: parse all scripts and collect analysis
+  const { analyses, globals, allKeptNames } = analyzeScripts(scripts);
 
-  // Create consistent global renames, avoiding kept names
+  // Create consistent global renames
   const globalRenames = new Map<string, string>();
-  const nameGen = new NameGenerator(new Set([...RESERVED_IDENTIFIERS, ...keptNames]));
+  const nameGen = new NameGenerator(allKeptNames);
   for (const name of globals) {
     globalRenames.set(name, nameGen.next());
   }
 
-  // Second pass: rename each script
-  return scripts.map((source) => renameScript(source, globalRenames));
+  // Apply renames using pre-parsed data
+  return analyses.map((analysis) => renameScriptWithAnalysis(analysis, globalRenames));
 }
+
+/** Regex for uppercase constants (e.g., MIDI_NOTE, CH) */
+const UPPERCASE_CONST_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
 /**
  * Check if a global name should be extracted.
  */
-function isUserGlobal(name: string): boolean {
-  if (BUILTIN_GLOBALS.has(name)) return false;
-  // Uppercase constants (e.g., MIDI_NOTE, CH)
-  if (/^[A-Z_][A-Z0-9_]*$/.test(name)) return true;
-  // Allowed callbacks (e.g., midirx_cb)
-  if (ALLOWED_CALLBACKS.has(name)) return true;
-  return false;
-}
+const isUserGlobal = (name: string): boolean =>
+  !BUILTIN_GLOBALS.has(name) && (UPPERCASE_CONST_PATTERN.test(name) || ALLOWED_CALLBACKS.has(name));
 
 /**
  * Extract new globals defined in the script by comparing before/after execution.
  */
-function extractNewGlobals(L: any, source: string, functions: FunctionNode[]): Map<string, string> {
+function extractNewGlobals(L: LuaState, source: string, functions: FunctionNode[]): Map<string, string> {
   const newGlobals = new Map<string, string>();
 
   // Iterate over _G to find new globals
@@ -729,9 +773,8 @@ function globalsToLua(globals: Map<string, string>): string {
 /**
  * Extract a function's body with upvalue inlining.
  */
-function extractFunction(L: any, source: string, fnStackIndex: number, functions: FunctionNode[]): string | null {
-  // Convert to absolute index before any stack modifications
-  const absIdx = fnStackIndex < 0 ? lua.lua_gettop(L) + fnStackIndex + 1 : fnStackIndex;
+function extractFunction(L: LuaState, source: string, fnStackIndex: number, functions: FunctionNode[]): string | null {
+  const absIdx = toAbsoluteIndex(L, fnStackIndex);
 
   const upvalues = getUpvalues(L, absIdx);
 
@@ -761,9 +804,6 @@ function extractFunction(L: any, source: string, fnStackIndex: number, functions
 // =============================================================================
 // Lua VM Helpers
 // =============================================================================
-
-// Lua state type alias for documentation
-type LuaState = ReturnType<typeof lauxlib.luaL_newstate>;
 
 /**
  * Get a string field from the table at the top of the stack.
