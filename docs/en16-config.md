@@ -17,7 +17,7 @@ The EN16 needs custom Lua scripts on each element to:
 | Encoders | CC | 0 | 32-47 |
 | Buttons | Note | 0 | 32-47 |
 | Long Buttons | Note | 0 | 48-63 |
-| Control Button | Note | 0 | 64 |
+| Sync Signal | Note | 0 | 64 |
 
 ## Configuration Files
 

@@ -39,7 +39,6 @@ Both sides must agree on the MIDI layout (which CC/Note numbers mean what). See 
 | Encoder 14 | Send B (selected track) |
 | Encoder 15 | Send A (selected track) |
 | Encoder 16 | Volume (selected track) |
-| Control Button | Refresh surface |
 
 ## Installation
 

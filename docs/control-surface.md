@@ -480,7 +480,7 @@ flowchart LR
         Grid["Grid.py<br/>Control Surface<br/>- Device<br/>- Mixer<br/>- Session"]
     end
 
-    Lua -->|"CC 32-47 (encoders)<br/>Note 32-47 (buttons)<br/>Note 48-63 (long)<br/>Note 64 (control)"| Grid
+    Lua -->|"CC 32-47 (encoders)<br/>Note 32-47 (buttons)<br/>Note 48-63 (long)<br/>Note 64 (sync)"| Grid
     Grid -->|"CC 32-47 (encoder feedback)<br/>Note 32-47 (button LEDs)<br/>Note 48-63 (arm LEDs)"| Lua
 ```
 
@@ -493,7 +493,7 @@ Both sides must agree on the MIDI message mapping:
 | Encoders | CC | 0 | 32-47 | Bidirectional |
 | Buttons | Note | 0 | 32-47 | EN16 → Ableton |
 | Long Buttons | Note | 0 | 48-63 | EN16 → Ableton |
-| Control Button | Note | 0 | 64 | EN16 → Ableton |
+| Sync Signal | Note | 0 | 64 | EN16 → Ableton |
 | Button LEDs | Note | 0 | 32-47 | Ableton → EN16 |
 | Arm LEDs | Note | 0 | 48-63 | Ableton → EN16 |
 
