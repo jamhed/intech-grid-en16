@@ -16,10 +16,12 @@
   },
   "dependencies": {
     "@intechstudio/grid-protocol": "^1.20251126.1325",
+    "@types/luaparse": "^0.2.13",
     "commander": "^14.0.2",
     "fengari": "^0.1.5",
     "fengari-interop": "^0.1.4",
     "lodash": "^4.17.21",
+    "luaparse": "^0.3.1",
     "serialport": "^13.0.0",
     "tslib": "^2.8.1"
   },

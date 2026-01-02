@@ -2,6 +2,7 @@ import * as fengari from "fengari";
 import * as interop from "fengari-interop";
 import * as fs from "fs";
 import * as path from "path";
+import * as luaparse from "luaparse";
 import type { ConfigFile, EventConfig } from "./lib.js";
 import { EVENT_NAMES } from "./lib.js";
 
@@ -16,25 +17,72 @@ const EVENT_IDS: Record<string, number> = Object.fromEntries(
   Object.entries(EVENT_NAMES).map(([id, name]) => [name, parseInt(id, 10)])
 );
 
+// =============================================================================
+// AST-based function extraction
+// =============================================================================
+
+interface FunctionNode {
+  startLine: number;
+  bodyStart: number;
+  bodyEnd: number;
+}
+
 /**
- * Extract function body from Lua source code given line range.
+ * Parse Lua source and extract all function locations.
  */
-function extractFunctionBody(source: string, startLine: number, endLine: number): string {
-  const lines = source.split("\n");
-  const fnLines = lines.slice(startLine - 1, endLine);
+function parseFunctions(source: string): FunctionNode[] {
+  const functions: FunctionNode[] = [];
 
-  let body = fnLines.join("\n");
+  try {
+    const ast = luaparse.parse(source, { locations: true, ranges: true });
+    collectFunctions(ast, functions);
+  } catch {
+    // Parse error - return empty, will fall back to line-based extraction
+  }
 
-  // Remove function declaration (handles: name = function(...), function name(...), function(...))
-  body = body.replace(/^\s*\w+\s*=\s*function\s*\([^)]*\)\s*/m, "");
-  body = body.replace(/^\s*function\s+\w+\s*\([^)]*\)\s*/m, "");
-  body = body.replace(/^\s*function\s*\([^)]*\)\s*/m, "");
+  return functions;
+}
 
-  // Remove trailing end and comma
-  body = body.replace(/\s*end\s*,?\s*$/, "");
+/**
+ * Recursively collect function nodes from AST.
+ */
+function collectFunctions(node: any, results: FunctionNode[]): void {
+  if (!node || typeof node !== "object") return;
 
-  // Normalize whitespace
-  return body.trim().replace(/\s+/g, " ");
+  if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
+    if (node.body?.length > 0 && node.loc && node.body[0].range && node.body[node.body.length - 1].range) {
+      results.push({
+        startLine: node.loc.start.line,
+        bodyStart: node.body[0].range[0],
+        bodyEnd: node.body[node.body.length - 1].range[1],
+      });
+    }
+  }
+
+  for (const key in node) {
+    const value = node[key];
+    if (Array.isArray(value)) {
+      value.forEach((child) => collectFunctions(child, results));
+    } else if (typeof value === "object") {
+      collectFunctions(value, results);
+    }
+  }
+}
+
+/**
+ * Extract function body from source using AST ranges.
+ */
+function extractFunctionBody(source: string, startLine: number, functions: FunctionNode[]): string {
+  // Find function starting at this line
+  const fn = functions.find((f) => f.startLine === startLine);
+
+  if (fn) {
+    const body = source.slice(fn.bodyStart, fn.bodyEnd);
+    return body.trim().replace(/\s+/g, " ");
+  }
+
+  // Fallback: shouldn't happen if AST parsing succeeded
+  return "";
 }
 
 /**
@@ -400,7 +448,7 @@ function isUserGlobal(name: string): boolean {
 /**
  * Extract new globals defined in the script by comparing before/after execution.
  */
-function extractNewGlobals(L: any, source: string): Map<string, string> {
+function extractNewGlobals(L: any, source: string, functions: FunctionNode[]): Map<string, string> {
   const newGlobals = new Map<string, string>();
 
   // Iterate over _G to find new globals
@@ -414,7 +462,7 @@ function extractNewGlobals(L: any, source: string): Map<string, string> {
       if (isUserGlobal(name)) {
         // Handle functions - extract body from source
         if (lua.lua_isfunction(L, -1)) {
-          const body = extractFunction(L, source, -1);
+          const body = extractFunction(L, source, -1, functions);
           if (body) {
             newGlobals.set(name, `function(self,event,header) ${body} end`);
           }
@@ -453,7 +501,8 @@ function globalsToLua(globals: Map<string, string>): string {
 function extractFunction(
   L: any,
   source: string,
-  fnStackIndex: number
+  fnStackIndex: number,
+  functions: FunctionNode[]
 ): string | null {
   // Convert to absolute index before any stack modifications
   const absIdx = fnStackIndex < 0 ? lua.lua_gettop(L) + fnStackIndex + 1 : fnStackIndex;
@@ -472,17 +521,13 @@ function extractFunction(
   lua.lua_getfield(L, -1, fengari.to_luastring("linedefined"));
   const startLine = lua.lua_tointeger(L, -1);
   lua.lua_pop(L, 1);
-
-  lua.lua_getfield(L, -1, fengari.to_luastring("lastlinedefined"));
-  const endLine = lua.lua_tointeger(L, -1);
-  lua.lua_pop(L, 1);
   lua.lua_pop(L, 1); // Pop info table
 
-  if (startLine <= 0 || endLine <= 0) {
+  if (startLine <= 0) {
     return null;
   }
 
-  let body = extractFunctionBody(source, startLine, endLine);
+  let body = extractFunctionBody(source, startLine, functions);
   body = inlineUpvalues(body, upvalues);
   return body || null;
 }
@@ -492,6 +537,9 @@ function extractFunction(
  */
 export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
   const source = fs.readFileSync(filePath, "utf-8");
+
+  // Parse AST to get function locations
+  const functions = parseFunctions(source);
 
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
@@ -586,7 +634,7 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
     const systemEvents: EventConfig[] = [];
 
     // Extract new globals defined at script root (becomes system init)
-    const newGlobals = extractNewGlobals(L, source);
+    const newGlobals = extractNewGlobals(L, source, functions);
     const rootGlobals = globalsToLua(newGlobals);
 
     // Create system init from root globals
@@ -600,7 +648,7 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
       if (lua.lua_isfunction(L, -1)) {
         const eventId = EVENT_IDS[eventName];
         if (eventId !== undefined) {
-          const body = extractFunction(L, source, -1);
+          const body = extractFunction(L, source, -1, functions);
           if (body) {
             systemEvents.push({ event: eventId, config: body });
           }
@@ -641,7 +689,7 @@ export async function loadLuaConfig(filePath: string): Promise<ConfigFile> {
             const eventId = EVENT_IDS[eventName];
 
             if (eventId !== undefined) {
-              const body = extractFunction(L, source, -1);
+              const body = extractFunction(L, source, -1, functions);
               if (body) {
                 events.push({ event: eventId, config: body });
               }
