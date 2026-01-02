@@ -31,13 +31,13 @@ Both sides must agree on the MIDI layout (which CC/Note numbers mean what). See 
 | Control | Function |
 |---------|----------|
 | Buttons 1-8 | Select track (long press to arm) |
-| Buttons 9-12 | Select return track |
+| Buttons 9-12 | Select Return track A-D |
 | Buttons 13-16 | Launch/stop clips 1-4 on selected track |
 | Encoders 1-8 | Device parameters |
 | Encoders 9-12 | (available for custom mapping) |
-| Encoder 13 | Send C (selected track) |
-| Encoder 14 | Send B (selected track) |
-| Encoder 15 | Send A (selected track) |
+| Encoder 13 | Send level to Return C |
+| Encoder 14 | Send level to Return B |
+| Encoder 15 | Send level to Return A |
 | Encoder 16 | Volume (selected track) |
 
 ## Installation
