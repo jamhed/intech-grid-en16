@@ -5,6 +5,10 @@ import * as path from "path";
 import type { ConfigFile, EventConfig } from "./lib.js";
 import { EVENT_NAMES } from "./lib.js";
 
+// Import grid protocol for Lua function names
+const gridProtocol = await import("@intechstudio/grid-protocol");
+const { grid } = gridProtocol;
+
 const { lua, lauxlib, lualib } = fengari;
 
 // Reverse lookup: event name -> event ID
@@ -320,57 +324,61 @@ const GRID_API_STUBS = `
   function print() end
 `;
 
-// Built-in globals to ignore when detecting new ones
-const BUILTIN_GLOBALS = new Set([
-  // Lua built-ins
+// Lua built-in globals
+const LUA_BUILTINS = [
   "_G", "_VERSION", "assert", "collectgarbage", "dofile", "error", "getmetatable",
   "ipairs", "load", "loadfile", "next", "pairs", "pcall", "print", "rawequal",
   "rawget", "rawlen", "rawset", "require", "select", "setmetatable", "tonumber",
   "tostring", "type", "warn", "xpcall", "coroutine", "debug", "io", "math",
   "os", "package", "string", "table", "utf8", "js",
-  // Our injected globals
-  "grid", "__grid_config", "__get_func_info", "element",
-  // LED functions
-  "glr", "glg", "glb", "glp", "glt", "gln", "gld", "glx", "glc", "glf", "gls", "glpfs", "glag",
-  "led_default_red", "led_default_green", "led_default_blue", "led_value", "led_timeout",
-  "led_color_min", "led_color_mid", "led_color_max", "led_color", "led_animation_rate",
-  "led_animation_type", "led_animation_phase_rate_type", "led_address_get",
-  // MIDI functions
-  "gms", "gmss", "midi_send", "midi_sysex_send",
-  // HID functions
-  "gks", "gmms", "gmbs", "ggms", "ggbs",
-  "keyboard_send", "mouse_move_send", "mouse_button_send", "gamepad_move_send", "gamepad_button_send",
-  // Page functions
-  "gpn", "gpp", "gpc", "gpl", "page_next", "page_previous", "page_current", "page_load",
-  // Timer functions
-  "gtt", "gtp", "gts", "timer_start", "timer_stop", "timer_source",
-  // Event functions
-  "get", "event_trigger",
-  // MIDI RX control
-  "mre", "mrs", "midirx_enabled", "midirx_sync",
-  // Element name functions
-  "gen", "gsen", "gens", "ggen", "element_name", "element_name_set", "element_name_send", "element_name_get",
-  // Communication functions
-  "gwss", "gps", "gis", "websocket_send", "package_send", "immediate_send",
-  // Module info functions
-  "gmx", "gmy", "gmr", "ghwcfg", "gvmaj", "gvmin", "gvpat", "gec",
-  "module_position_x", "module_position_y", "module_rotation", "hardware_configuration",
-  "version_major", "version_minor", "version_patch", "element_count",
-  // Filesystem functions
-  "gfls", "gfcat", "readdir", "readfile",
-  // Calibration functions
-  "gcr", "gpcg", "gpcs", "gpds", "grcg", "grcs",
-  "calibration_reset", "potmeter_calibration_get", "potmeter_center_set",
-  "potmeter_detent_set", "range_calibration_get", "range_calibration_set",
-  // Utility functions
-  "grnd", "gmaps", "glim", "sgn", "gsc", "gsg",
-  "random8", "map_saturate", "limit", "sign", "segment_calculate", "string_get",
-  // LCD/GUI functions
-  "glsb", "ggdsw", "ggdpx", "ggdl", "ggdr", "ggdrf", "ggdrr", "ggdrrf", "ggdpo", "ggdpof", "ggdt", "ggdft", "ggdaf", "ggdd",
-  "lcd_set_backlight", "gui_draw_swap", "gui_draw_pixel", "gui_draw_line", "gui_draw_rectangle",
-  "gui_draw_rectangle_filled", "gui_draw_rectangle_rounded", "gui_draw_rectangle_rounded_filled",
-  "gui_draw_polygon", "gui_draw_polygon_filled", "gui_draw_text", "gui_draw_fasttext",
-  "gui_draw_area_filled", "gui_draw_demo",
+];
+
+// Globals injected by the loader
+const INJECTED_GLOBALS = ["grid", "__grid_config", "__get_func_info", "element"];
+
+/**
+ * Extract global names from GRID_API_STUBS.
+ * Matches: `function name(` and `name = `
+ */
+function extractStubGlobals(stubs: string): string[] {
+  const names: string[] = [];
+  // Match function definitions: function name(
+  for (const match of stubs.matchAll(/function\s+(\w+)\s*\(/g)) {
+    names.push(match[1]);
+  }
+  // Match global assignments: name =
+  for (const match of stubs.matchAll(/^  (\w+)\s*=/gm)) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
+/**
+ * Extract Lua function names from @intechstudio/grid-protocol.
+ * Returns both short (glr) and human (led_default_red) names.
+ */
+function extractProtocolFunctions(): string[] {
+  const names: string[] = [];
+  const luaProps = grid.getProperty("LUA") as Record<string, { short?: string; human?: string; type?: string }>;
+  if (!luaProps) return names;
+
+  const functionTypes = ["global", "encoder", "button", "potmeter", "endless", "lcd"];
+  for (const key in luaProps) {
+    const entry = luaProps[key];
+    if (functionTypes.includes(entry.type ?? "")) {
+      if (entry.short) names.push(entry.short);
+      if (entry.human) names.push(entry.human);
+    }
+  }
+  return names;
+}
+
+// Built-in globals to ignore when detecting new ones
+const BUILTIN_GLOBALS = new Set([
+  ...LUA_BUILTINS,
+  ...INJECTED_GLOBALS,
+  ...extractStubGlobals(GRID_API_STUBS),
+  ...extractProtocolFunctions(),
 ]);
 
 // Allowed callback names that can be defined at root level
