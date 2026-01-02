@@ -20,6 +20,7 @@ npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 ```
 
 Options:
+
 | Flag | Description |
 |------|-------------|
 | `-p, --port <path>` | Serial port path (auto-detects if not specified) |
@@ -36,6 +37,7 @@ npx tsx grid-cli.ts download ./backup.json
 ```
 
 Options:
+
 | Flag | Description |
 |------|-------------|
 | `-p, --port <path>` | Serial port path (auto-detects if not specified) |
@@ -56,12 +58,14 @@ npx tsx grid-cli.ts convert ../configs/EN16-Control.lua --no-minify
 ```
 
 Options:
+
 | Flag | Description |
 |------|-------------|
 | `-o, --output <path>` | Output file path (prints to stdout if not specified) |
 | `--no-minify` | Skip minification (keep human-readable function names) |
 
 Minification uses `@intechstudio/grid-protocol` to:
+
 - Convert long function names to short aliases (`encoder_value` → `eva`)
 - Remove unnecessary whitespace
 
@@ -160,7 +164,9 @@ return grid.config {
 
 The CLI automatically detects the format by file extension (`.json` or `.lua`).
 
-For a complete example, see [EN16-Control.lua](../configs/EN16-Control.lua) and [EN16 Configuration Guide](../docs/EN16_CONFIG.md).
+For a complete example, see [EN16-Control.lua](../configs/EN16-Control.lua) and [EN16 Configuration Guide](../docs/en16-config.md).
+
+For detailed Lua config authoring, see the [Lua Config Guide](../docs/lua-config-guide.md).
 
 ### Event Types
 
@@ -191,7 +197,7 @@ Maximum script length: **909 characters** (including `<?lua ?>` wrapper)
 
 The CLI validates script length before upload and fails with an error if exceeded:
 
-```
+```text
 Validation failed: Script too long for element 0, event 0: 934/909 characters.
 Reduce by 25 characters.
 ```

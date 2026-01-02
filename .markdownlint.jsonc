@@ -1,0 +1,34 @@
+{
+  // Markdownlint configuration
+  // https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+
+  "default": true,
+
+  // Line length - disabled (we use soft wraps)
+  "MD013": false,
+
+  // Duplicate headings - disabled (common in docs with repeated sections)
+  "MD024": false,
+
+  // Allow inline HTML (needed for some formatting)
+  "MD033": false,
+
+  // Allow bare URLs
+  "MD034": false,
+
+  // First line should be a top-level heading
+  "MD041": true,
+
+  // Code block style
+  "MD046": {
+    "style": "fenced"
+  },
+
+  // Code fence style
+  "MD048": {
+    "style": "backtick"
+  },
+
+  // Table column style - disabled (too strict for compact tables)
+  "MD060": false
+}

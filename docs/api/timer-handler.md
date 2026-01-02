@@ -15,6 +15,7 @@ Timers are controlled via the parent element's methods:
 ## Available Methods via `self`
 
 The timer handler has access to all methods of its parent element type:
+
 - For encoders: all encoder parameters (`eva`, `emo`, etc.) and button parameters
 - For buttons: all button parameters (`bva`, `bst`, etc.)
 - For potmeters: all potmeter parameters (`pva`, `pmo`, etc.)
@@ -43,4 +44,4 @@ print('tick')
 This simply prints 'tick' to the console. Timer must be started first via `self:gtt(interval_ms)` in another handler (e.g., init or button handler).
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

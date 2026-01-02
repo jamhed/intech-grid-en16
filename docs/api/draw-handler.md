@@ -60,4 +60,4 @@ end
 This draws a visual representation of a value with element name label, updating only when the frame flag `self.f` is set.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

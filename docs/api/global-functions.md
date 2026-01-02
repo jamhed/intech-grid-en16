@@ -236,7 +236,7 @@ These are low-level drawing functions (use `self:` methods in draw_handler inste
 | `ggdaf` | `gui_draw_area_filled` | Fill area |
 | `ggdd` | `gui_draw_demo` | Draw demo |
 
-See [draw_handler](draw_handler.md) for LCD element-specific methods.
+See [draw_handler](draw-handler.md) for LCD element-specific methods.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

@@ -22,7 +22,8 @@ Control Ableton Live with the Intech EN16 grid controller.
 ## Installation
 
 1. Copy this folder to Ableton's Remote Scripts location:
-   ```
+
+   ```text
    ~/Music/Ableton/User Library/Remote Scripts/Intech
    ```
 
@@ -34,7 +35,7 @@ Control Ableton Live with the Intech EN16 grid controller.
 
 ## Project Structure
 
-```
+```text
 Intech/
 ├── __init__.py              # Entry point
 ├── control_surface/         # Python project
@@ -47,9 +48,12 @@ Intech/
 │   ├── grid-cli.ts          # Upload/download Grid configs
 │   └── README.md            # CLI documentation
 ├── docs/
-│   ├── EN16_CONFIG.md       # EN16 configuration guide
-│   ├── GRID_LUA.md          # Grid Lua API reference
-│   └── GRID_FIRMWARE.md     # Firmware internals
+│   ├── en16-config.md       # EN16 configuration guide
+│   ├── grid-lua.md          # Grid Lua API reference
+│   ├── grid-firmware.md     # Firmware internals
+│   └── lua-config-guide.md  # Lua config authoring guide
+├── scripts/
+│   └── check-docs.sh        # Lint & validate docs
 └── __ext__/
     └── AbletonLive12_MIDIRemoteScripts/  # Type hints (git submodule)
 ```
@@ -64,11 +68,13 @@ Intech/
 ### Enable Script Reloading
 
 Add to `Options.txt` (requires Ableton Beta):
-```
+
+```text
 -_ToolsMenuRemoteScripts
 ```
 
 Location:
+
 - macOS: `/Users/[username]/Library/Preferences/Ableton/Live x.x.x/Options.txt`
 - Windows: `%APPDATA%\Ableton\Live x.x.x\Preferences\Options.txt`
 
@@ -85,6 +91,7 @@ Get-Content "$env:APPDATA\Ableton\Live *\Preferences\Log.txt" -Wait | Select-Str
 ### Clear Cache Before Reload
 
 After editing Python files, clear the bytecode cache:
+
 ```bash
 rm -rf __pycache__
 ```
@@ -99,6 +106,15 @@ This project includes `AbletonLive12_MIDIRemoteScripts` as a git submodule for t
 git submodule update --init
 ```
 
+### Validate Documentation
+
+Lint markdown and check cross-links:
+
+```bash
+./scripts/check-docs.sh        # check
+./scripts/check-docs.sh --fix  # auto-fix
+```
+
 ### References
 
 - [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) - Decompiled scripts
@@ -106,7 +122,7 @@ git submodule update --init
 
 ---
 
-# Grid CLI Tool
+## Grid CLI Tool
 
 A command-line tool for uploading/downloading Grid controller configurations without Grid Editor.
 
@@ -127,7 +143,7 @@ See [grid-cli/README.md](grid-cli/README.md) for full documentation.
 
 ---
 
-# EN16 Configuration
+## EN16 Configuration
 
 The controller requires a custom Lua profile to send MIDI messages and receive feedback from Ableton.
 
@@ -149,14 +165,15 @@ cd grid-cli && npm install
 npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 ```
 
-See [EN16 Configuration Guide](docs/EN16_CONFIG.md) for detailed Lua scripts and explanation.
+See [EN16 Configuration Guide](docs/en16-config.md) for detailed Lua scripts and explanation.
 
 ## References
 
-- [EN16 Configuration Guide](docs/EN16_CONFIG.md) - Element scripts and MIDI routing
+- [EN16 Configuration Guide](docs/en16-config.md) - Element scripts and MIDI routing
+- [Lua Config Authoring Guide](docs/lua-config-guide.md) - Write configs in Lua
 - [Grid CLI Tool](grid-cli/README.md) - Upload/download configurations
-- [Grid Lua API](docs/GRID_LUA.md) - Full API reference
-- [Grid Firmware Internals](docs/GRID_FIRMWARE.md) - Device runtime details
+- [Grid Lua API](docs/grid-lua.md) - Full API reference
+- [Grid Firmware Internals](docs/grid-firmware.md) - Device runtime details
 
 ---
 

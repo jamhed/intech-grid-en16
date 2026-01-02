@@ -40,4 +40,4 @@ local ch,cmd,param1,param2=midi.ch,midi.cmd,midi.p1,midi.p2
 This extracts the MIDI message components into local variables for use in custom code.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

@@ -7,7 +7,7 @@ This documentation covers the Lua API available for Grid controllers. Each handl
 | Global | Short | Description |
 |--------|-------|-------------|
 | [element](api/element.md) | `ele` | Array of all elements on the controller |
-| [global_functions](api/global_functions.md) | - | LED, MIDI, page, timer, utility functions |
+| [global_functions](api/global-functions.md) | - | LED, MIDI, page, timer, utility functions |
 
 ## Element Handlers
 
@@ -15,30 +15,30 @@ This documentation covers the Lua API available for Grid controllers. Each handl
 
 | Handler | Short | Element | Description |
 |---------|-------|---------|-------------|
-| [init_handler](api/init_handler.md) | `ini` | All | Element/page initialization (runs once) |
+| [init_handler](api/init-handler.md) | `ini` | All | Element/page initialization (runs once) |
 
 ### Input Elements
 
 | Handler | Short | Element | Description |
 |---------|-------|---------|-------------|
-| [encoder_handler](api/encoder_handler.md) | `ec` | Encoder | Rotary encoder rotation events |
-| [button_handler](api/button_handler.md) | `bc` | Button/Encoder | Button press/release events |
-| [potmeter_handler](api/potmeter_handler.md) | `pc` | Potentiometer | Analog potentiometer events |
-| [endless_handler](api/endless_handler.md) | `epc` | Endless | Endless potentiometer rotation events |
+| [encoder_handler](api/encoder-handler.md) | `ec` | Encoder | Rotary encoder rotation events |
+| [button_handler](api/button-handler.md) | `bc` | Button/Encoder | Button press/release events |
+| [potmeter_handler](api/potmeter-handler.md) | `pc` | Potentiometer | Analog potentiometer events |
+| [endless_handler](api/endless-handler.md) | `epc` | Endless | Endless potentiometer rotation events |
 
 ### System Handlers
 
 | Handler | Short | Element | Description |
 |---------|-------|---------|-------------|
-| [timer_handler](api/timer_handler.md) | `tim` | All | Timer tick events (must be started first) |
-| [mapmode_handler](api/mapmode_handler.md) | `map` | System | Page/mapmode change events |
-| [midirx_handler](api/midirx_handler.md) | `mrx` | System | MIDI receive events |
+| [timer_handler](api/timer-handler.md) | `tim` | All | Timer tick events (must be started first) |
+| [mapmode_handler](api/mapmode-handler.md) | `map` | System | Page/mapmode change events |
+| [midirx_handler](api/midirx-handler.md) | `mrx` | System | MIDI receive events |
 
 ### Display Handlers
 
 | Handler | Short | Element | Description |
 |---------|-------|---------|-------------|
-| [draw_handler](api/draw_handler.md) | `ld` | LCD | Screen drawing/refresh events |
+| [draw_handler](api/draw-handler.md) | `ld` | LCD | Screen drawing/refresh events |
 
 ## Common Functions
 
@@ -66,3 +66,13 @@ Each element type has specific handler slots:
 - **Endless**: init (`ini`), button (`bc`), endless (`epc`), timer (`tim`)
 - **System**: init (`ini`), mapmode (`map`), midirx (`mrx`), timer (`tim`)
 - **LCD**: init (`ini`), draw (`ld`)
+
+## Related Documentation
+
+- [Lua Config Authoring Guide](lua-config-guide.md) - How to write Lua config files
+- [Grid CLI](../grid-cli/README.md) - Upload/download configurations
+
+**Intech Studio Official:**
+
+- [Grid Editor](https://docs.intech.studio/guides/introduction) - Visual configuration tool
+- [Reference Manual](https://docs.intech.studio/reference-manual/introduction) - Complete function reference

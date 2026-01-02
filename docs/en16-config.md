@@ -5,6 +5,7 @@ This document explains how to configure the Intech EN16 Grid controller to work 
 ## Overview
 
 The EN16 needs custom Lua scripts on each element to:
+
 - Send MIDI CC/Note messages to Ableton
 - Receive MIDI feedback to update encoder positions and LED states
 - Handle long-press for track arming
@@ -24,6 +25,7 @@ The EN16 needs custom Lua scripts on each element to:
 - [EN16-Control.lua](../configs/EN16-Control.lua) - Lua format (human-readable)
 
 Upload using the [Grid CLI tool](../grid-cli/README.md):
+
 ```bash
 cd grid-cli
 npx tsx grid-cli.ts upload ../configs/EN16-Control.json
@@ -34,6 +36,7 @@ npx tsx grid-cli.ts upload ../configs/EN16-Control.json
 ### System Element (Element 16)
 
 The system element (index 255 in config, physical element 16) handles:
+
 - MIDI feedback routing from Ableton
 - Periodic sync requests via timer
 
@@ -59,6 +62,7 @@ self:timer_start(1000)
 ```
 
 **How it works:**
+
 - `midirx_cb` receives MIDI from Ableton
 - Note messages (cmd=144) control LED brightness for buttons
 - Note messages with el >= 16 set LED color for arm state (red=armed, blue=unarmed)
@@ -78,12 +82,15 @@ Sends Note 64 to trigger Ableton's `update()` method, syncing all parameter valu
 Control device parameters and track selection/arming.
 
 #### Setup Event
+
 ```lua
 self:led_color(1, {{0, 0, 255, 1}})
 ```
+
 Blue LED color for device/track controls.
 
 #### Button Event
+
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
 if self:button_state() == 0 then
@@ -96,10 +103,12 @@ midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 **Long press detection:**
+
 - Normal press: sends Note 32-39 (track select)
 - Long press (>1000ms): sends Note 48-55 (track arm)
 
 #### Encoder Event
+
 ```lua
 local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
@@ -108,18 +117,22 @@ midi_send(CH, MIDI_CC, cc, val)
 ### Return Track Encoders (Elements 8-11)
 
 #### Setup Event
+
 ```lua
 self:led_color(1, {{87, 255, 165, 1}})
 ```
+
 Green/teal LED color for return tracks.
 
 #### Button Event
+
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
 midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 #### Encoder Event
+
 ```lua
 local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
@@ -128,18 +141,22 @@ midi_send(CH, MIDI_CC, cc, val)
 ### Clip/Volume Encoders (Elements 12-15)
 
 #### Setup Event
+
 ```lua
 self:led_color(1, {{255, 255, 0, 1}})
 ```
+
 Yellow LED color for clip launch and mixer controls.
 
 #### Button Event
+
 ```lua
 local note, val = 32 + self:element_index(), self:button_value()
 midi_send(CH, MIDI_NOTE, note, val)
 ```
 
 #### Encoder Event
+
 ```lua
 local cc, val = 32 + self:element_index(), self:encoder_value()
 midi_send(CH, MIDI_CC, cc, val)
@@ -183,5 +200,6 @@ midi_send(0, 176, 1, 64)    -- CC 1, value 64
 
 ## References
 
-- [Grid Lua API Reference](GRID_LUA.md)
+- [Grid Lua API Reference](grid-lua.md)
+- [Lua Config Authoring Guide](lua-config-guide.md)
 - [Grid Editor Documentation](https://docs.intech.studio/guides/introduction)

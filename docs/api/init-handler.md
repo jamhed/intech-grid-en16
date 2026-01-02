@@ -5,6 +5,7 @@ The handler receives `self` as its implicit parameter (object-oriented style). T
 ## Purpose
 
 The init handler is used to:
+
 - Set up initial element state
 - Configure default values
 - Initialize custom variables on `self`
@@ -14,6 +15,7 @@ The init handler is used to:
 ## Available Methods via `self`
 
 The init handler has access to all methods of its parent element type:
+
 - For encoders: all encoder parameters (`eva`, `emo`, etc.) and button parameters
 - For buttons: all button parameters (`bva`, `bst`, etc.)
 - For potmeters: all potmeter parameters (`pva`, `pmo`, etc.)
@@ -81,22 +83,26 @@ self:ldrr(3,3,317,237,10,c[2])
 ## Common Use Cases
 
 ### Setting initial LED color
+
 ```lua
 self:glc(1, {{255, 0, 0, 1}})  -- Red LED
 ```
 
 ### Starting a timer
+
 ```lua
 self:gtt(100)  -- Start 100ms timer
 ```
 
 ### Initializing custom state
+
 ```lua
 self.counter = 0
 self.mode = 1
 ```
 
 ### Registering MIDI receive callback
+
 ```lua
 self.midirx_cb = function(self, event, header)
   -- Handle incoming MIDI
@@ -104,4 +110,4 @@ end
 ```
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

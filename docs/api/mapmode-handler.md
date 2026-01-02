@@ -41,4 +41,4 @@ gpl(gpn())
 This loads the next page when mapmode changes (utility button cycles through pages).
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

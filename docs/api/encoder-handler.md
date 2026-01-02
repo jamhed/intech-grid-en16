@@ -55,4 +55,4 @@ self:gms(-1,-1,-1,-1)
 This sets encoder mode to 0, velocity to 50, min 0, max 127, sensitivity 100, configures LED color/phase, and sends MIDI.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

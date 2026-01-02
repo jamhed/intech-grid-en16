@@ -47,12 +47,12 @@ Each element has the following properties:
 
 Each element has access to all methods of its type. See the specific handler documentation for available methods:
 
-- Encoder: [encoder_handler](encoder_handler.md), [button_handler](button_handler.md)
-- Button: [button_handler](button_handler.md)
-- Potmeter: [potmeter_handler](potmeter_handler.md)
-- Endless: [endless_handler](endless_handler.md), [button_handler](button_handler.md)
-- System: [mapmode_handler](mapmode_handler.md), [midirx_handler](midirx_handler.md)
-- LCD: [draw_handler](draw_handler.md)
+- Encoder: [encoder_handler](encoder-handler.md), [button_handler](button-handler.md)
+- Button: [button_handler](button-handler.md)
+- Potmeter: [potmeter_handler](potmeter-handler.md)
+- Endless: [endless_handler](endless-handler.md), [button_handler](button-handler.md)
+- System: [mapmode_handler](mapmode-handler.md), [midirx_handler](midirx-handler.md)
+- LCD: [draw_handler](draw-handler.md)
 
 ## Custom Properties
 
@@ -131,4 +131,4 @@ Different Grid modules have different element counts and arrangements:
 The System element is always the last element in the array.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)

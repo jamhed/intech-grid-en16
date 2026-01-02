@@ -42,4 +42,4 @@ self:gms(-1,-1,-1,-1)
 This sets button mode to 0, min 0, max 127, configures LED color/phase, and sends MIDI.
 
 ---
-[← Back to Reference](../GRID_LUA.md)
+[← Back to Reference](../grid-lua.md)
