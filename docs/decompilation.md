@@ -8,6 +8,8 @@ Ableton Live's control surface scripts are distributed as compiled Python byteco
 
 **Important:** Decompiled scripts are for reference only. They cannot be run directly and may have incomplete sections depending on the decompiler used.
 
+**Python 3.11 limitation:** Live 12.2+ uses Python 3.11, which is difficult to decompile reliably. No current tool produces complete output—expect incomplete methods and missing code. For complete decompilations, use gluon's Live 12.0 scripts (Python 3.7).
+
 ## Available Decompiled Scripts
 
 | Source | Live Version | Python | Location |
