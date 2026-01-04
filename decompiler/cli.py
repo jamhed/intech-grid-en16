@@ -142,7 +142,7 @@ Examples:
         if not args.quiet:
             print(f"Source: {args.input}")
             print(f"Output: {output_dir}")
-            tools = "decompyle3, pycdc, pylingual"
+            tools = "decompyle3, pycdc"
             if use_llm:
                 tools += ", llm"
             print(f"Tools: {tools}")

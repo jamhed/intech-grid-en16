@@ -18,10 +18,10 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 
 from bytecode_utils import (
-    extract_bytecode_section,
-    extract_class_bytecode,
+    BytecodeInfo,
     find_warning_end_index,
-    get_class_methods_from_bytecode,
+    get_class_methods,
+    get_code_disassembly,
     get_indent,
     is_truly_empty_class,
     is_truly_empty_function,
@@ -55,7 +55,7 @@ RECOVERY_PROMPT = """Reconstruct this incomplete Python function from its byteco
 {incomplete_source}
 ```
 
-## Bytecode Disassembly (from pycdas):
+## Bytecode Disassembly (from xdis):
 ```
 {bytecode}
 ```
@@ -80,7 +80,7 @@ CLASS_RECOVERY_PROMPT = """Reconstruct this incomplete Python class from its byt
 {incomplete_source}
 ```
 
-## Class Bytecode (from pycdas):
+## Class Bytecode (from xdis):
 ```
 {bytecode}
 ```
@@ -97,7 +97,7 @@ Rules:
 - Output ONLY the complete Python class
 - Include all methods listed above with FULL implementations
 - NEVER use 'pass' as a method body - always infer the real implementation from bytecode
-- Look at [Constants], [Names], [Disassembly] sections to understand what each method does
+- Look at constants, names, and disassembly to understand what each method does
 - Preserve the class name and base class
 - No explanations, just code in a Python code block
 
@@ -113,7 +113,7 @@ SYNTAX_FIX_PROMPT = """Fix the syntax errors in this Python code from a decompil
 ## Syntax error:
 {error}
 
-## Bytecode for reference (from pycdas):
+## Bytecode for reference (from xdis):
 ```
 {bytecode}
 ```
@@ -134,7 +134,7 @@ FULL_RECOVERY_PROMPT = """The decompiler produced invalid Python code. Reconstru
 {source}
 ```
 
-## Bytecode Disassembly (from pycdas):
+## Bytecode Disassembly (from xdis):
 ```
 {bytecode}
 ```
@@ -303,7 +303,7 @@ def indent_code(code: str, spaces: int) -> str:
 
 
 def find_incomplete_functions(
-    source: str, bytecode: str | None = None, tree: ast.AST | None = None
+    source: str, bc_info: BytecodeInfo | None = None, tree: ast.AST | None = None
 ) -> tuple[list[IncompleteFunction], bool]:
     """Find incomplete functions using AST analysis."""
     if tree is None:
@@ -325,7 +325,7 @@ def find_incomplete_functions(
         has_warning = end_line < len(lines) and "WARNING: Decompyle incomplete" in "\n".join(
             lines[end_line : end_line + 3]
         )
-        is_empty = not bytecode or is_truly_empty_function(bytecode, node.name)
+        is_empty = bc_info is None or is_truly_empty_function(bc_info, node.name)
 
         if has_warning or not is_empty:
             args = [arg.arg for arg in node.args.args]
@@ -360,7 +360,7 @@ def find_incomplete_functions(
 
 
 def find_incomplete_classes(
-    source: str, bytecode: str, tree: ast.AST | None = None
+    source: str, bc_info: BytecodeInfo, tree: ast.AST | None = None
 ) -> list[IncompleteClass]:
     """Find incomplete classes using AST analysis."""
     if tree is None:
@@ -377,7 +377,7 @@ def find_incomplete_classes(
             continue
 
         is_pass_only = len(node.body) == 1 and isinstance(node.body[0], ast.Pass)
-        if is_pass_only and not is_truly_empty_class(bytecode, node.name):
+        if is_pass_only and not is_truly_empty_class(bc_info, node.name):
             base = "object"
             if node.bases:
                 base = ast.unparse(node.bases[0])
@@ -389,7 +389,7 @@ def find_incomplete_classes(
                     lineno=node.lineno,
                     end_lineno=node.end_lineno or node.lineno,
                     indent=get_indent(lines, node.lineno),
-                    methods=get_class_methods_from_bytecode(bytecode, node.name),
+                    methods=get_class_methods(bc_info, node.name),
                 )
             )
 
@@ -399,27 +399,35 @@ def find_incomplete_classes(
 # --- Recovery functions ---
 
 
-def fix_syntax_errors(source: str, bytecode: str, use_both: bool = True) -> str | None:
+def fix_syntax_errors(source: str, bc_info: BytecodeInfo, use_both: bool = True) -> str | None:
     """Fix syntax errors using LLM."""
     valid, error = validate_syntax(source)
     if valid:
         return source
 
+    bytecode = bc_info.get_disassembly()
     prompt = SYNTAX_FIX_PROMPT.format(source=source, error=error, bytecode=bytecode)
     # call_llm validates syntax via extract_code_from_response
     return call_llm(prompt, use_both)
 
 
-def recover_full_file(source: str, bytecode: str, use_both: bool = True) -> str | None:
+def recover_full_file(source: str, bc_info: BytecodeInfo, use_both: bool = True) -> str | None:
     """Recover entire file using LLM."""
+    bytecode = bc_info.get_disassembly()
     prompt = FULL_RECOVERY_PROMPT.format(source=source, bytecode=bytecode)
     return call_llm(prompt, use_both)
 
 
 def recover_function(
-    func: IncompleteFunction, bytecode: str, context: str, use_both: bool = True
+    func: IncompleteFunction, bc_info: BytecodeInfo, context: str, use_both: bool = True
 ) -> str | None:
     """Recover a single function using LLM."""
+    # Get disassembly for this specific function
+    qualified = f"{func.class_name}.{func.name}" if func.class_name else func.name
+    bytecode = get_code_disassembly(bc_info, qualified) or get_code_disassembly(bc_info, func.name)
+    if not bytecode:
+        bytecode = bc_info.get_disassembly()  # Fallback to full disassembly
+
     prompt = RECOVERY_PROMPT.format(
         incomplete_source=f"{func.signature}\n    pass",
         bytecode=bytecode,
@@ -437,10 +445,22 @@ def recover_function(
 
 
 def recover_class(
-    cls: IncompleteClass, bytecode: str, context: str, use_both: bool = True
+    cls: IncompleteClass, bc_info: BytecodeInfo, context: str, use_both: bool = True
 ) -> str | None:
     """Recover a single class using LLM."""
-    class_bytecode = extract_class_bytecode(bytecode, cls.name, cls.methods)
+    # Build class bytecode from class and method disassemblies
+    parts = []
+    class_disasm = get_code_disassembly(bc_info, cls.name)
+    if class_disasm:
+        parts.append(f"=== Class {cls.name} ===\n{class_disasm}")
+
+    for method in cls.methods:
+        method_disasm = get_code_disassembly(bc_info, f"{cls.name}.{method}")
+        if method_disasm:
+            parts.append(f"\n=== Method {cls.name}.{method} ===\n{method_disasm}")
+
+    class_bytecode = "\n".join(parts) if parts else bc_info.get_disassembly()
+
     prompt = CLASS_RECOVERY_PROMPT.format(
         incomplete_source=f"class {cls.name}({cls.base_class}):\n    pass",
         bytecode=class_bytecode,
@@ -457,7 +477,7 @@ def recover_class(
     return code if valid else None
 
 
-def strip_leftover_warnings(source: str, bytecode: str) -> str:
+def strip_leftover_warnings(source: str, bc_info: BytecodeInfo) -> str:
     """Strip WARNING comments if all code is complete."""
     if "# WARNING: Decompyle incomplete" not in source:
         return source
@@ -473,9 +493,9 @@ def strip_leftover_warnings(source: str, bytecode: str) -> str:
         if not has_pass:
             return False
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return not is_truly_empty_function(bytecode, node.name)
+            return not is_truly_empty_function(bc_info, node.name)
         if isinstance(node, ast.ClassDef):
-            return not is_truly_empty_class(bytecode, node.name)
+            return not is_truly_empty_class(bc_info, node.name)
         return False
 
     for node in ast.walk(tree):
@@ -494,7 +514,9 @@ def strip_leftover_warnings(source: str, bytecode: str) -> str:
 # --- Main entry point ---
 
 
-def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -> tuple[str, int]:
+def recover_incomplete_file(
+    source: str, bc_info: BytecodeInfo, use_both: bool = True
+) -> tuple[str, int]:
     """Recover all incomplete functions and classes using LLM.
 
     Returns: (recovered source, number of items recovered)
@@ -505,7 +527,7 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
     # Fix syntax errors first (validate_syntax returns tree to avoid reparsing)
     valid, _, tree = validate_syntax(working_source, return_tree=True)
     if not valid:
-        fixed = fix_syntax_errors(working_source, bytecode, use_both)
+        fixed = fix_syntax_errors(working_source, bc_info, use_both)
         if fixed:
             working_source = fixed
             recovered_count += 1
@@ -514,20 +536,20 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
             if not valid:
                 return working_source, recovered_count
         else:
-            recovered = recover_full_file(working_source, bytecode, use_both)
+            recovered = recover_full_file(working_source, bc_info, use_both)
             if recovered:
                 valid, _, _ = validate_syntax(recovered, return_tree=True)
                 if valid:
                     return recovered, 1
             return source, 0
 
-    incomplete_funcs, _ = find_incomplete_functions(working_source, bytecode, tree)
-    incomplete_classes = find_incomplete_classes(working_source, bytecode, tree)
+    incomplete_funcs, _ = find_incomplete_functions(working_source, bc_info, tree)
+    incomplete_classes = find_incomplete_classes(working_source, bc_info, tree)
 
     # Handle module-level incomplete code
     has_warning = "# WARNING: Decompyle incomplete" in working_source
     if not incomplete_funcs and not incomplete_classes and has_warning:
-        recovered = recover_full_file(working_source, bytecode, use_both)
+        recovered = recover_full_file(working_source, bc_info, use_both)
         if recovered:
             valid, _ = validate_syntax(recovered)
             if valid and "# WARNING:" not in recovered:
@@ -546,7 +568,7 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
 
     # Recover classes (bottom-up to preserve line numbers)
     for cls in sorted(incomplete_classes, key=lambda c: -c.lineno):
-        recovered = recover_class(cls, bytecode, context, use_both)
+        recovered = recover_class(cls, bc_info, context, use_both)
         if recovered:
             start_idx = cls.lineno - 1
             end_idx = find_warning_end_index(result_lines, cls.end_lineno)
@@ -555,16 +577,11 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
 
     # Recover functions (bottom-up)
     for func in sorted(incomplete_funcs, key=lambda f: -f.lineno):
-        qualified = f"{func.class_name}.{func.name}" if func.class_name else None
-        func_bytecode = extract_bytecode_section(bytecode, func.name, qualified)
-        if not func_bytecode:
-            continue
-
         func_context = context
         if func.class_name:
             func_context += f"\n\nclass {func.class_name}:\n    # method context"
 
-        recovered = recover_function(func, func_bytecode, func_context, use_both)
+        recovered = recover_function(func, bc_info, func_context, use_both)
         if recovered:
             start_idx = func.lineno - 1
             end_idx = find_warning_end_index(result_lines, func.end_lineno)
@@ -572,7 +589,7 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
             recovered_count += 1
 
     result = "\n".join(result_lines)
-    result = strip_leftover_warnings(result, bytecode)
+    result = strip_leftover_warnings(result, bc_info)
 
     valid, _ = validate_syntax(result)
     if not valid:
