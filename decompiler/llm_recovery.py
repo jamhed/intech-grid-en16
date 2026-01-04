@@ -13,14 +13,16 @@ import re
 import shutil
 import subprocess
 import textwrap
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 
 from bytecode_utils import (
+    extract_bytecode_section,
     extract_class_bytecode,
     find_warning_end_index,
     get_class_methods_from_bytecode,
+    get_indent,
     is_truly_empty_class,
     is_truly_empty_function,
     validate_syntax,
@@ -35,7 +37,14 @@ __all__ = [
     "recover_incomplete_file",
     "find_incomplete_functions",
     "find_incomplete_classes",
+    "is_available",
 ]
+
+
+def is_available() -> bool:
+    """Check if LLM recovery is available (has a coding agent)."""
+    return find_coding_agent() is not None
+
 
 # --- Prompts ---
 
@@ -224,7 +233,7 @@ def call_both_agents(prompt: str) -> str | None:
         for name, future in [("claude", claude_future), ("opencode", opencode_future)]:
             try:
                 results[name] = future.result(timeout=130)
-            except (FuturesTimeoutError, CancelledError, subprocess.SubprocessError, OSError):
+            except (FuturesTimeoutError, subprocess.SubprocessError, OSError):
                 results[name] = None
 
     codes = {}
@@ -245,6 +254,14 @@ def call_both_agents(prompt: str) -> str | None:
         return score
 
     return max(codes.values(), key=score_code)
+
+
+def call_llm(prompt: str, use_both: bool = True) -> str | None:
+    """Call LLM agent(s) and extract code from response."""
+    if use_both:
+        return call_both_agents(prompt)
+    response = call_claude(prompt)
+    return extract_code_from_response(response) if response else None
 
 
 def extract_code_from_response(response: str) -> str | None:
@@ -270,14 +287,10 @@ def extract_code_from_response(response: str) -> str | None:
     if not code:
         return None
 
+    # Always dedent and validate
+    code = textwrap.dedent(code)
     valid, _ = validate_syntax(code)
-    if not valid:
-        code = textwrap.dedent(code)
-        valid, _ = validate_syntax(code)
-        if not valid:
-            return None
-
-    return code
+    return code if valid else None
 
 
 def indent_code(code: str, spaces: int) -> str:
@@ -290,22 +303,17 @@ def indent_code(code: str, spaces: int) -> str:
 
 
 def find_incomplete_functions(
-    source: str, bytecode: str | None = None
+    source: str, bytecode: str | None = None, tree: ast.AST | None = None
 ) -> tuple[list[IncompleteFunction], bool]:
     """Find incomplete functions using AST analysis."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return [], True
+    if tree is None:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return [], True
 
     lines = source.split("\n")
     incomplete = []
-
-    def get_indent(lineno: int) -> int:
-        if lineno <= 0 or lineno > len(lines):
-            return 0
-        line = lines[lineno - 1]
-        return len(line) - len(line.lstrip())
 
     def check_function(node: ast.FunctionDef | ast.AsyncFunctionDef, class_name: str | None = None):
         if not (len(node.body) == 1 and isinstance(node.body[0], ast.Pass)):
@@ -333,53 +341,45 @@ def find_incomplete_functions(
                     signature=f"{prefix} {node.name}({', '.join(args)}):",
                     lineno=node.lineno,
                     end_lineno=end_line,
-                    indent=get_indent(node.lineno),
+                    indent=get_indent(lines, node.lineno),
                     is_method=class_name is not None,
                     class_name=class_name,
                 )
             )
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
+    # Single pass: check module-level functions and class methods
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            check_function(node, None)
+        elif isinstance(node, ast.ClassDef):
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     check_function(item, node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Check if top-level (not a method)
-            is_method = any(
-                isinstance(parent, ast.ClassDef) and node in parent.body
-                for parent in ast.walk(tree)
-            )
-            if not is_method:
-                check_function(node, None)
 
     return incomplete, False
 
 
-def find_incomplete_classes(source: str, bytecode: str) -> list[IncompleteClass]:
+def find_incomplete_classes(
+    source: str, bytecode: str, tree: ast.AST | None = None
+) -> list[IncompleteClass]:
     """Find incomplete classes using AST analysis."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return []
+    if tree is None:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return []
 
     lines = source.split("\n")
     incomplete = []
 
-    def get_indent(lineno: int) -> int:
-        if lineno <= 0 or lineno > len(lines):
-            return 0
-        line = lines[lineno - 1]
-        return len(line) - len(line.lstrip())
-
-    for node in ast.walk(tree):
+    for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.ClassDef):
             continue
 
         is_pass_only = len(node.body) == 1 and isinstance(node.body[0], ast.Pass)
         if is_pass_only and not is_truly_empty_class(bytecode, node.name):
             base = "object"
-            if node.bases and hasattr(ast, "unparse"):
+            if node.bases:
                 base = ast.unparse(node.bases[0])
 
             incomplete.append(
@@ -388,19 +388,12 @@ def find_incomplete_classes(source: str, bytecode: str) -> list[IncompleteClass]
                     base_class=base,
                     lineno=node.lineno,
                     end_lineno=node.end_lineno or node.lineno,
-                    indent=get_indent(node.lineno),
+                    indent=get_indent(lines, node.lineno),
                     methods=get_class_methods_from_bytecode(bytecode, node.name),
                 )
             )
 
     return incomplete
-
-
-def extract_bytecode_for_function(bytecode: str, func_name: str) -> str | None:
-    """Extract bytecode section for a function."""
-    pattern = rf"Object Name: {re.escape(func_name)}.*?(?=\n\s*\[Code\]\n\s*File Name:|\Z)"
-    match = re.search(pattern, bytecode, re.DOTALL)
-    return match.group(0) if match else None
 
 
 # --- Recovery functions ---
@@ -413,27 +406,14 @@ def fix_syntax_errors(source: str, bytecode: str, use_both: bool = True) -> str 
         return source
 
     prompt = SYNTAX_FIX_PROMPT.format(source=source, error=error, bytecode=bytecode)
-    code = (
-        call_both_agents(prompt)
-        if use_both
-        else extract_code_from_response(call_claude(prompt) or "")
-    )
-
-    if code:
-        valid, _ = validate_syntax(code)
-        if valid:
-            return code
-    return None
+    # call_llm validates syntax via extract_code_from_response
+    return call_llm(prompt, use_both)
 
 
 def recover_full_file(source: str, bytecode: str, use_both: bool = True) -> str | None:
     """Recover entire file using LLM."""
     prompt = FULL_RECOVERY_PROMPT.format(source=source, bytecode=bytecode)
-    return (
-        call_both_agents(prompt)
-        if use_both
-        else extract_code_from_response(call_claude(prompt) or "")
-    )
+    return call_llm(prompt, use_both)
 
 
 def recover_function(
@@ -445,16 +425,10 @@ def recover_function(
         bytecode=bytecode,
         context=context,
     )
-
-    code = (
-        call_both_agents(prompt)
-        if use_both
-        else extract_code_from_response(call_claude(prompt) or "")
-    )
+    code = call_llm(prompt, use_both)
     if not code:
         return None
 
-    code = textwrap.dedent(code)
     if func.indent > 0:
         code = indent_code(code, func.indent)
 
@@ -473,16 +447,9 @@ def recover_class(
         methods=", ".join(cls.methods) if cls.methods else "unknown",
         context=context,
     )
-
-    code = (
-        call_both_agents(prompt)
-        if use_both
-        else extract_code_from_response(call_claude(prompt) or "")
-    )
+    code = call_llm(prompt, use_both)
     if not code:
         return None
-
-    code = textwrap.dedent(code)
     if cls.indent > 0:
         code = indent_code(code, cls.indent)
 
@@ -535,24 +502,27 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
     working_source = source
     recovered_count = 0
 
-    # Fix syntax errors first
-    valid, _ = validate_syntax(working_source)
+    # Fix syntax errors first (validate_syntax returns tree to avoid reparsing)
+    valid, _, tree = validate_syntax(working_source, return_tree=True)
     if not valid:
         fixed = fix_syntax_errors(working_source, bytecode, use_both)
         if fixed:
             working_source = fixed
             recovered_count += 1
+            # Reparse after fix
+            valid, _, tree = validate_syntax(working_source, return_tree=True)
+            if not valid:
+                return working_source, recovered_count
         else:
             recovered = recover_full_file(working_source, bytecode, use_both)
             if recovered:
-                valid, _ = validate_syntax(recovered)
+                valid, _, _ = validate_syntax(recovered, return_tree=True)
                 if valid:
                     return recovered, 1
             return source, 0
 
-    # Find incomplete items
-    incomplete_funcs, _ = find_incomplete_functions(working_source, bytecode)
-    incomplete_classes = find_incomplete_classes(working_source, bytecode)
+    incomplete_funcs, _ = find_incomplete_functions(working_source, bytecode, tree)
+    incomplete_classes = find_incomplete_classes(working_source, bytecode, tree)
 
     # Handle module-level incomplete code
     has_warning = "# WARNING: Decompyle incomplete" in working_source
@@ -585,7 +555,8 @@ def recover_incomplete_file(source: str, bytecode: str, use_both: bool = True) -
 
     # Recover functions (bottom-up)
     for func in sorted(incomplete_funcs, key=lambda f: -f.lineno):
-        func_bytecode = extract_bytecode_for_function(bytecode, func.name)
+        qualified = f"{func.class_name}.{func.name}" if func.class_name else None
+        func_bytecode = extract_bytecode_section(bytecode, func.name, qualified)
         if not func_bytecode:
             continue
 

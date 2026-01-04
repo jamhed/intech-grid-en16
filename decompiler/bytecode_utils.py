@@ -15,18 +15,38 @@ __all__ = [
     "get_class_methods_from_bytecode",
     "extract_class_bytecode",
     "find_warning_end_index",
+    "get_indent",
 ]
 
 
-def validate_syntax(source: str) -> tuple[bool, str | None]:
+def get_indent(lines: list[str], lineno: int) -> int:
+    """Get indentation level at a line number (1-indexed)."""
+    if lineno <= 0 or lineno > len(lines):
+        return 0
+    line = lines[lineno - 1]
+    return len(line) - len(line.lstrip())
+
+
+def validate_syntax(
+    source: str, return_tree: bool = False
+) -> tuple[bool, str | None] | tuple[bool, str | None, ast.AST | None]:
     """Check if Python source has valid syntax.
 
-    Returns: (is_valid, error_message)
+    Args:
+        source: Python source code
+        return_tree: If True, return the AST tree on success
+
+    Returns:
+        (is_valid, error_message) or (is_valid, error_message, tree) if return_tree=True
     """
     try:
-        ast.parse(source)
+        tree = ast.parse(source)
+        if return_tree:
+            return True, None, tree
         return True, None
     except SyntaxError as e:
+        if return_tree:
+            return False, f"Line {e.lineno}: {e.msg}", None
         return False, f"Line {e.lineno}: {e.msg}"
 
 

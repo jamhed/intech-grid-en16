@@ -30,11 +30,13 @@ if TYPE_CHECKING:
 
 try:
     from llm_recovery import find_coding_agent
+    from llm_recovery import is_available as llm_is_available
 
     HAS_LLM = True
 except ImportError:
     HAS_LLM = False
     find_coding_agent = None  # type: ignore[assignment]
+    llm_is_available = lambda: False  # type: ignore[assignment]  # noqa: E731
 
 
 def decompile_single_file(
@@ -106,18 +108,14 @@ Examples:
         return 1
 
     # Check LLM availability (enabled by default)
-    use_llm = not args.no_llm
-    if use_llm:
+    use_llm = not args.no_llm and HAS_LLM and llm_is_available()
+    if not args.no_llm and not use_llm:
         if not HAS_LLM:
             print("Warning: llm_recovery module not available", file=sys.stderr)
-            use_llm = False
         else:
-            agent = find_coding_agent()
-            if not agent:
-                print("Warning: No coding agent found (claude/opencode)", file=sys.stderr)
-                use_llm = False
-            elif not args.quiet:
-                print(f"LLM recovery enabled: {agent}")
+            print("Warning: No coding agent found (claude/opencode)", file=sys.stderr)
+    elif use_llm and not args.quiet:
+        print(f"LLM recovery enabled: {find_coding_agent()}")
 
     # Process input
     if args.input.is_file():
@@ -144,7 +142,7 @@ Examples:
         if not args.quiet:
             print(f"Source: {args.input}")
             print(f"Output: {output_dir}")
-            tools = "decompyle3, pycdc, pylingual, pychaos"
+            tools = "decompyle3, pycdc, pylingual"
             if use_llm:
                 tools += ", llm"
             print(f"Tools: {tools}")

@@ -7,26 +7,13 @@ Strategy:
 2. Fall back to pycdc (handles more Python 3.11 patterns)
 3. Use bytecode analysis to reconstruct incomplete sections
 4. Optionally use LLM-assisted recovery for remaining gaps
-5. Try pylingual as ML-based fallback
 """
-
-# ruff: noqa: E402
-import os
-import warnings
-
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-os.environ["TRANSFORMERS_VERBOSITY"] = "error"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*max_length.*")
-warnings.filterwarnings("ignore", message=".*Token indices.*")
 
 import logging
 import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,11 +24,18 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 try:
-    from llm_recovery import find_coding_agent, recover_incomplete_file
+    from llm_recovery import (
+        find_coding_agent,
+        recover_incomplete_file,
+    )
+    from llm_recovery import (
+        is_available as llm_is_available,
+    )
 
     HAS_LLM_RECOVERY = True
 except ImportError:
     HAS_LLM_RECOVERY = False
+    llm_is_available = lambda: False  # type: ignore[assignment]  # noqa: E731
 
 try:
     from pylingual import decompile as pylingual_decompile
@@ -132,17 +126,20 @@ def decompile_with_decompyle3(pyc_path: Path) -> DecompileResult:
     """Try decompyle3 - produces complete output when it works."""
     stdout, stderr, code = run_command(["uv", "run", "decompyle3", str(pyc_path)])
 
-    if "Unsupported Python version" in stdout or "Unsupported Python version" in stderr:
+    if "Unsupported Python version" in stdout + stderr:
         return DecompileResult("", "decompyle3", MAX_INCOMPLETE, "Unsupported Python version")
 
-    if code == 0 and stdout.strip():
-        lines = [ln for ln in stdout.split("\n") if ln.strip() and not ln.startswith("#")]
-        if lines:
-            return DecompileResult(stdout, "decompyle3", 0)
+    if code != 0 or not stdout.strip():
+        return DecompileResult(
+            "", "decompyle3", MAX_INCOMPLETE, stderr[:200] if stderr else "Empty output"
+        )
 
-    return DecompileResult(
-        "", "decompyle3", MAX_INCOMPLETE, stderr[:200] if stderr else "Empty output"
-    )
+    # Check for actual code (not just comments)
+    has_code = any(ln.strip() and not ln.startswith("#") for ln in stdout.split("\n"))
+    if not has_code:
+        return DecompileResult("", "decompyle3", MAX_INCOMPLETE, "Only comments in output")
+
+    return DecompileResult(stdout, "decompyle3", 0)
 
 
 def decompile_with_pycdc(pyc_path: Path) -> DecompileResult:
@@ -172,14 +169,15 @@ def decompile_with_pylingual(pyc_path: Path) -> DecompileResult:
 
     try:
         result = pylingual_decompile(pyc_path)
+        # pylingual API varies between versions
         source = getattr(result, "decompiled_source", None) or getattr(result, "source", None)
+        if not source or not source.strip():
+            return DecompileResult("", "pylingual", MAX_INCOMPLETE, "Empty output")
 
-        if source and source.strip():
-            incomplete_count = source.count("# WARNING:") + source.count("# TODO:")
-            return DecompileResult(source, "pylingual", incomplete_count)
-
-        return DecompileResult("", "pylingual", MAX_INCOMPLETE, "Empty output")
-    except (OSError, ValueError, RuntimeError, AttributeError) as e:
+        incomplete_count = source.count("# WARNING:") + source.count("# TODO:")
+        return DecompileResult(source, "pylingual", incomplete_count)
+    except Exception as e:
+        # pylingual can fail in various ways (model loading, inference, etc.)
         return DecompileResult("", "pylingual", MAX_INCOMPLETE, str(e)[:200])
 
 
@@ -327,85 +325,86 @@ def _extract_class_stub(bytecode: str, class_name: str) -> str | None:
 # --- Main decompilation pipeline ---
 
 
+def _count_incomplete(result: DecompileResult, bytecode: str) -> int:
+    """Count actual incomplete items including false passes."""
+    if not result.source:
+        return MAX_INCOMPLETE
+    count = result.incomplete_count
+    if bytecode:
+        count += count_false_passes(result.source, bytecode)
+    valid, _ = validate_syntax(result.source)
+    if not valid:
+        count = max(count, 1)
+    return count
+
+
+def _try_improve_with_bytecode(result: DecompileResult, bytecode: str) -> DecompileResult:
+    """Try to improve result using bytecode analysis."""
+    if not bytecode or not result.source:
+        return result
+
+    filled = fill_incomplete_sections(result.source, bytecode)
+    new_count = _count_incomplete(DecompileResult(filled, result.tool + "+bytecode", 0), bytecode)
+    if new_count < _count_incomplete(result, bytecode):
+        return DecompileResult(filled, result.tool + "+bytecode", new_count)
+    return result
+
+
+def _try_llm_recovery(result: DecompileResult, bytecode: str, use_llm: bool) -> DecompileResult:
+    """Try LLM-assisted recovery."""
+    if not use_llm or not HAS_LLM_RECOVERY or not result.source or not bytecode:
+        return result
+
+    recovered, count = recover_incomplete_file(result.source, bytecode, use_both=False)
+    if count > 0:
+        new_count = _count_incomplete(DecompileResult(recovered, "", 0), bytecode)
+        return DecompileResult(recovered, result.tool + "+llm", new_count)
+    return result
+
+
 def decompile_file(pyc_path: Path, use_llm: bool = False) -> DecompileResult:
     """Decompile a single file using available tools in priority order."""
     bytecode = ""
 
-    def count_incomplete(result: DecompileResult) -> int:
-        """Count actual incomplete items including false passes."""
-        if not result.source:
-            return MAX_INCOMPLETE
-        count = result.incomplete_count
-        if bytecode:
-            count += count_false_passes(result.source, bytecode)
-        valid, _ = validate_syntax(result.source)
-        if not valid:
-            count = max(count, 1)
-        return count
-
-    def try_improve_with_bytecode(result: DecompileResult) -> DecompileResult:
-        """Try to improve result using bytecode analysis."""
+    def get_bytecode() -> str:
         nonlocal bytecode
         if not bytecode:
             bytecode = get_bytecode_disassembly(pyc_path)
-        if not bytecode or not result.source:
-            return result
-
-        filled = fill_incomplete_sections(result.source, bytecode)
-        new_count = count_incomplete(DecompileResult(filled, result.tool + "+bytecode", 0))
-        if new_count < count_incomplete(result):
-            return DecompileResult(filled, result.tool + "+bytecode", new_count)
-        return result
-
-    def try_llm_recovery(result: DecompileResult) -> DecompileResult:
-        """Try LLM-assisted recovery."""
-        nonlocal bytecode
-        if not use_llm or not HAS_LLM_RECOVERY or not result.source:
-            return result
-        if not bytecode:
-            bytecode = get_bytecode_disassembly(pyc_path)
-        if not bytecode:
-            return result
-
-        recovered, count = recover_incomplete_file(result.source, bytecode, use_both=False)
-        if count > 0:
-            new_count = count_incomplete(DecompileResult(recovered, "", 0))
-            return DecompileResult(recovered, result.tool + "+llm", new_count)
-        return result
-
-    # Define decompiler pipeline
-    decompilers: list[Callable[[], DecompileResult]] = [
-        lambda: decompile_with_decompyle3(pyc_path),
-        lambda: decompile_with_pycdc(pyc_path),
-    ]
+        return bytecode
 
     best_result = DecompileResult("", "none", MAX_INCOMPLETE, "No decompiler succeeded")
 
-    # Try each decompiler
-    for decompiler in decompilers:
-        result = decompiler()
+    # Try decompyle3 first
+    result = decompile_with_decompyle3(pyc_path)
+    if result.is_complete:
+        return result
+
+    # Try pycdc with bytecode improvement
+    result = decompile_with_pycdc(pyc_path)
+    if result.is_complete:
+        return result
+
+    if result.source:
+        bc = get_bytecode()
+        result = _try_improve_with_bytecode(result, bc)
         if result.is_complete:
             return result
 
-        # Try bytecode improvement for pycdc results
-        if result.source and result.tool == "pycdc":
-            result = try_improve_with_bytecode(result)
-            if result.is_complete:
-                return result
+        result = _try_llm_recovery(result, bc, use_llm)
+        if result.is_complete:
+            return result
 
-            result = try_llm_recovery(result)
-            if result.is_complete:
-                return result
-
-        if result.source and count_incomplete(result) < count_incomplete(best_result):
+        if _count_incomplete(result, bc) < _count_incomplete(best_result, bc):
             best_result = result
 
     # Try pylingual as fallback
     pylingual_result = decompile_with_pylingual(pyc_path)
     if pylingual_result.is_complete:
         return pylingual_result
-    if pylingual_result.source and count_incomplete(pylingual_result) < count_incomplete(
-        best_result
+
+    bc = get_bytecode()
+    if pylingual_result.source and _count_incomplete(pylingual_result, bc) < _count_incomplete(
+        best_result, bc
     ):
         best_result = pylingual_result
 
@@ -558,18 +557,14 @@ def main():
         logger.error("Build it: cd pycdc && cmake . && make")
         sys.exit(1)
 
-    use_llm = not args.no_llm
-    if use_llm:
+    use_llm = not args.no_llm and HAS_LLM_RECOVERY and llm_is_available()
+    if not args.no_llm and not use_llm:
         if not HAS_LLM_RECOVERY:
             logger.warning("llm_recovery module not available")
-            use_llm = False
         else:
-            agent = find_coding_agent()
-            if agent:
-                logger.info("LLM recovery enabled: %s", agent)
-            else:
-                logger.warning("No coding agent found (claude/opencode)")
-                use_llm = False
+            logger.warning("No coding agent found (claude/opencode)")
+    elif use_llm:
+        logger.info("LLM recovery enabled: %s", find_coding_agent())
 
     print("Multi-Tool Decompiler")
     print("=" * 50)
