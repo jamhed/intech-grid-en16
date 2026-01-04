@@ -1,0 +1,51 @@
+[project]
+name = "decompiler"
+version = "0.1.0"
+description = "Multi-tool Python bytecode decompiler with LLM-assisted recovery"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "decompyle3>=3.9.3",
+    "pylingual",
+    "requests>=2.31.0",
+    "xdis>=6.1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+]
+
+[project.scripts]
+decompile = "cli:main"
+
+[tool.uv.sources]
+pylingual = { git = "https://github.com/syssec-utd/pylingual.git" }
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "SIM108", # ternary operator
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
