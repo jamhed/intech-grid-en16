@@ -10,7 +10,7 @@ Ableton Live MIDI Remote Script for Intech Grid EN16 controller.
 | `configs/EN16-Control.lua` | Lua config (runs on EN16 hardware) |
 | `grid-cli/` | TypeScript CLI for config upload/download |
 | `docs/` | Documentation |
-| `__ext__/` | Git submodules (reference scripts, not modified) |
+| `__ext__/` | Reference scripts (gluon repos, not modified) |
 
 ## Two-Part Architecture
 

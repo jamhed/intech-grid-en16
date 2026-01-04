@@ -2,31 +2,63 @@
 
 Reference for the three framework generations used in Ableton Live MIDI Remote Scripts.
 
-**Source:** `__ext__/AbletonLive12_MIDIRemoteScripts/`
+**Source:** Decompiled scripts in `__ext__/` from [gluon's repositories](https://github.com/gluon)
 
 ## Overview
 
 Ableton's MIDI Remote Scripts have evolved through three major framework versions:
 
-| Framework | Introduced | Controllers | Base Class | Key Pattern |
-|-----------|------------|-------------|------------|-------------|
+| Framework | Introduced | Controllers (Live 12) | Base Class | Key Pattern |
+|-----------|------------|----------------------|------------|-------------|
 | `_Framework` | Live 4+ | 45 | `OptimizedControlSurface` | Direct component setup |
-| `ableton.v2` | Live 9.5 | 29 | `ControlSurface` | Capabilities system |
-| `ableton.v3` | Live 11.2 | 11 | `ControlSurface` + `Specification` | Declarative configuration |
+| `ableton.v2` | Live 9 | 29 | `ControlSurface` | Capabilities system |
+| `ableton.v3` | Live 11 | 11 | `ControlSurface` + `Specification` | Declarative configuration |
 
 ## Ableton Live Version History
 
-| Version | Release | Python | Notes |
-|---------|---------|--------|-------|
-| Live 9 | Mar 2013 | 2.x | Push 1, `_Framework` standard |
-| Live 9.5 | Nov 2015 | 2.x | Push 2, `ableton.v2` introduced |
-| Live 10 | Feb 2018 | 2.x | Last Python 2 version |
-| Live 11 | Feb 2021 | 3.x | Python 3 migration, v2 standard |
-| Live 11.2.7 | 2022 | 3.x | APC mini mk2, `ableton.v3` appears |
-| Live 11.3.12 | 2023 | 3.x | APC64 support |
-| Live 12 | Feb 2024 | 3.x | Current version |
+| Version | Release | Python | Controllers | Notes |
+|---------|---------|--------|-------------|-------|
+| Live 9 | Mar 2013 | 2.x | 97 | Push 1, `ableton.v2` introduced |
+| Live 10 | Feb 2018 | 2.x | 116 | Logging, Subject events, MessageScheduler |
+| Live 11 | Feb 2021 | 3.x | 133 | Python 3, **`ableton.v3` introduced** |
+| Live 12 | Feb 2024 | 3.7 | 136 | v3 enhanced with `live/` subdir |
+| Live 12.2 beta | 2025 | 3.11 | 143 | +7 new v3 controllers, Python upgraded |
 
 All third-party scripts must use Python 3 for Live 11+.
+
+## Live 12.2 Beta: New Controllers
+
+Seven new controllers added, all using `ableton.v3`:
+
+| Controller | Files | Notes |
+|------------|-------|-------|
+| Move | 45 | Ableton's standalone hardware |
+| Launchkey_MK4 | 26 | Novation Launchkey Mark 4 |
+| Launchkey_Mini_MK4 | 5 | Launchkey Mini Mark 4 |
+| Launch_Control_XL_3 | 15 | Launch Control XL Mark 3 |
+| KeyLab_mk3 | 12 | Arturia KeyLab Mark 3 |
+| MPK_mini_IV | 12 | Akai MPK mini Mark 4 |
+| MPK_mini_Plus | 5 | Akai MPK mini Plus |
+
+## Python 2 → 3 Migration (Live 10 → 11)
+
+Key syntax changes visible in decompiled scripts:
+
+```python
+# Live 10 (Python 2 with future imports)
+from __future__ import absolute_import, print_function, unicode_literals
+from itertools import ifilter, imap
+model_name=u'Controller'
+
+# Live 11+ (Python 3)
+from builtins import filter, map, range, str
+from future.utils import string_types
+model_name='Controller'
+```
+
+- `ifilter`, `imap` removed (use native `filter`, `map`)
+- Unicode literals `u'...'` no longer needed
+- `publish_self` parameter removed from ControlSurface
 
 ## \_Framework (Legacy)
 
@@ -288,15 +320,25 @@ The `_Framework` remains fully supported and is the most documented option. The 
 
 ## See Also
 
+- [Framework Evolution](framework-evolution.md) - Detailed code comparison across generations
 - [Control Surface Architecture](control-surface.md) - Detailed `_Framework` documentation
 - [EN16 Configuration](en16-config.md) - Project-specific implementation
+
+## Reference Repositories
+
+Decompiled MIDI Remote Scripts by [Julien Bayle (gluon)](https://github.com/gluon):
+
+| Repository | Live Version | Python | Available in |
+|------------|--------------|--------|--------------|
+| [AbletonLive9_RemoteScripts](https://github.com/gluon/AbletonLive9_RemoteScripts) | 9.x | 2.x | `__ext__/AbletonLive9_MIDIRemoteScripts/` |
+| [AbletonLive10.1_MIDIRemoteScripts](https://github.com/gluon/AbletonLive10.1_MIDIRemoteScripts) | 10.1.19 | 2.x | `__ext__/AbletonLive10_MIDIRemoteScripts/` |
+| [AbletonLive11_MIDIRemoteScripts](https://github.com/gluon/AbletonLive11_MIDIRemoteScripts) | 11.x | 3.x | `__ext__/AbletonLive11_MIDIRemoteScripts/` |
+| [AbletonLive12_MIDIRemoteScripts](https://github.com/gluon/AbletonLive12_MIDIRemoteScripts) | 12.x | 3.x | `__ext__/AbletonLive12_MIDIRemoteScripts/` |
 
 ## Sources
 
 - [Ableton Live - Wikipedia](https://en.wikipedia.org/wiki/Ableton_Live) - Release history
-- [Live 11 Release Notes](https://www.ableton.com/en/release-notes/live-11/) - Python 3, APC support
+- [Live 11 Release Notes](https://www.ableton.com/en/release-notes/live-11/) - Python 3, controller support
 - [Live 12 Release Notes](https://www.ableton.com/en/release-notes/live-12/) - Current version
 - [Installing third-party remote scripts](https://help.ableton.com/hc/en-us/articles/209072009-Installing-third-party-remote-scripts) - Python 3 requirement
-- [APC64 FAQ](https://support.akaipro.com/en/support/solutions/articles/69000844959-akai-pro-apc-64-frequently-asked-questions) - Live 11.3.12 requirement
-- [APC mini mk2 FAQ](https://support.akaipro.com/en/support/solutions/articles/69000826280-akai-pro-apc-mini-mk2-frequently-asked-questions) - Live 11.2.7 requirement
 - [How to make a control surface for Ableton](https://gabrielyshay.medium.com/how-to-make-a-control-surface-for-ableton-56360a0e7a2f) - v3 framework guide
