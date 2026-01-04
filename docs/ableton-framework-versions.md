@@ -341,4 +341,3 @@ Decompiled MIDI Remote Scripts by [Julien Bayle (gluon)](https://github.com/gluo
 - [Live 11 Release Notes](https://www.ableton.com/en/release-notes/live-11/) - Python 3, controller support
 - [Live 12 Release Notes](https://www.ableton.com/en/release-notes/live-12/) - Current version
 - [Installing third-party remote scripts](https://help.ableton.com/hc/en-us/articles/209072009-Installing-third-party-remote-scripts) - Python 3 requirement
-- [How to make a control surface for Ableton](https://gabrielyshay.medium.com/how-to-make-a-control-surface-for-ableton-56360a0e7a2f) - v3 framework guide

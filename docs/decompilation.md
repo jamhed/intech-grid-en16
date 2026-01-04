@@ -284,7 +284,6 @@ Combine multiple decompilers for better coverage:
 | pycdc | Python 3.11+ initial decompilation |
 | pycdas | Bytecode when decompilation fails |
 | xdis | Detailed opcode analysis |
-| pydumpck | Combines pycdc + uncompyle6 output |
 
 ### 4. LLM-Assisted Recovery
 
@@ -361,4 +360,3 @@ diff -r __ext__/AbletonLive11_MIDIRemoteScripts/_Framework \
 | pycdas | Included with pycdc | 1.0 - 3.12 | Bytecode disassembly |
 | xdis | [PyPI](https://pypi.org/project/xdis/) | 2.4 - 3.12 | Detailed bytecode analysis |
 | pylingual | [GitHub](https://github.com/syssec-utd/pylingual) | 3.9 - 3.11 | ML-based (experimental) |
-| pydumpck | [GitHub](https://github.com/svencc/pydumpck) | 3.x | Multi-tool combination |
